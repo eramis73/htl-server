@@ -4097,13 +4097,12 @@
         return dead;
       };
 
-      // ── ONLINE GUEST: Interpolation ──────────
+      // ── ONLINE GUEST: early return — render received state only ──────────
       if (gameMode === 'online-guest') {
-        if (now - _lastInputSend >= 50) { // ~20 FPS input send
-          _lastInputSend = now; _sendGuestInput();
-        }
+        if (now - _lastInputSend >= 50) _sendGuestInput();
         if (_guestLastState) { applyGuestState(_guestLastState); _guestLastState = null; }
 
+        // Player lerp toward host targets
         players.forEach(p => {
           if (!p.group) return;
           if (p._targetX !== undefined) {
@@ -4115,36 +4114,66 @@
           }
         });
 
+        // Zombie lerp
         guestZombieMap.forEach(z => {
           if (!z.active || !z.group) return;
           if (z._tX !== undefined) {
             const zdx = z._tX - z.group.position.x, zdz = z._tZ - z.group.position.z, zDist = Math.hypot(zdx, zdz);
             if (zDist > 25) { z.group.position.set(z._tX, 0, z._tZ); }
-            else { 
-              z.group.position.x += zdx * 0.22; 
-              z.group.position.z += zdz * 0.22; 
-                z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.22;
-            }
+            else { z.group.position.x += zdx * 0.22; z.group.position.z += zdz * 0.22; z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.22; }
           }
         });
-      } else {
-        // ── HOST / LOCAL: Game Logic ──────────
-        if (gameMode === 'online-host' && gameState.active) {
-          if (now - _lastStateSend >= 83) { // ~12 FPS state send
-            _lastStateSend = now;
-            if (onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(_serializeState());
+
+        // Animations
+        players.forEach(p => {
+          if (!p.alive || !p.group || !p.lLeg) return;
+          if (p._gMoving) {
+            p.walkCycle = (p.walkCycle || 0) + dt * 9.6;
+            if (p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
+            p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
+            p.rLeg.rotation.x = -Math.sin(p.walkCycle) * 1.2;
+            p.lArm.rotation.x = -Math.sin(p.walkCycle) * 1.2;
+            p.rArm.rotation.x =  Math.sin(p.walkCycle) * 1.2;
+            p.group.position.y = Math.abs(Math.cos(p.walkCycle)) * 0.8;
+          } else {
+            p.lLeg.rotation.x = 0; p.rLeg.rotation.x = 0; p.lArm.rotation.x = 0; p.rArm.rotation.x = 0; p.group.position.y = 0;
           }
+        });
+
+        // Camera
+        if (isMobile) {
+          const lp = players[1];
+          if (lp && lp.alive && lp.group) {
+            const zoneZStart = ARENA_LIMIT / 3;
+            const factorZ = Math.max(0, Math.min(1, (lp.z - zoneZStart) / (ARENA_LIMIT * 0.67)));
+            cameraDynZ += (factorZ * 95 - cameraDynZ) * Math.min(1, dt * 3.5);
+            const zone5Start = ARENA_LIMIT_X * 0.6, zone1Start = -ARENA_LIMIT_X * 0.6;
+            let targetX = 0;
+            if (lp.x > zone5Start) targetX = ((lp.x - zone5Start) / (ARENA_LIMIT_X * 0.4)) * 120;
+            else if (lp.x < zone1Start) targetX = -((lp.x - zone1Start) / (-ARENA_LIMIT_X * 0.4)) * 120;
+            cameraDynX += (targetX - cameraDynX) * Math.min(1, dt * 3.5);
+          }
+        } else { cameraDynX = -20; cameraDynZ = 0; }
+        camera.position.set(cameraDynX, 400, cameraDynZ);
+        camera.lookAt(cameraDynX, 0, cameraDynZ);
+        if (now - _lastHudUpdate > 250) { _lastHudUpdate = now; updateHUD(); if (isMP()) updateMpHud(); }
+        renderer.render(scene, camera);
+        return;
+      }
+
+      // ── ONLINE HOST: send state ──────────
+      if (gameMode === 'online-host' && gameState.active) {
+        if (now - _lastStateSend >= 83) {
+          _lastStateSend = now;
+          if (onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(_serializeState());
         }
       }
 
-      // ── SHARED VISUALS: Runs for Host, Guest and Local ──────────
-      
-      // Update Animations (Walk Cycles)
+      // Update Animations (Walk Cycles) — host & local only
       players.forEach(p => {
         if (!p.alive || !p.group || !p.lLeg) return;
-        if ((gameMode !== 'online-guest' && p.isMoving) || (gameMode === 'online-guest' && p._gMoving)) {
+        if (p.isMoving) {
           p.walkCycle = (p.walkCycle || 0) + dt * 10;
-          if (gameMode === 'online-guest' && p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
           p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
           p.rLeg.rotation.x = -Math.sin(p.walkCycle) * 1.2;
           p.lArm.rotation.x = -Math.sin(p.walkCycle) * 1.2;
@@ -4342,19 +4371,6 @@
           });
           explosions.splice(i, 1);
         }
-      }
-
-      // ── ONLINE GUEST: skip all game logic — camera + render only ──────────
-      if (gameMode === 'online-guest') {
-        if (isMobile) {
-          cameraDynX += (0 - cameraDynX) * Math.min(1, dt * 3.5);
-          cameraDynZ += (0 - cameraDynZ) * Math.min(1, dt * 3.5);
-        }
-        camera.position.set(cameraDynX, 400, cameraDynZ);
-        camera.lookAt(cameraDynX, 0, cameraDynZ);
-        if (now - _lastHudUpdate > 250) { _lastHudUpdate = now; updateHUD(); if (isMP()) updateMpHud(); }
-        renderer.render(scene, camera);
-        return;
       }
 
       if (gameState.active && !gameState.transitioning) {
