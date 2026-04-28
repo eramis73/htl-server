@@ -4108,7 +4108,10 @@
       // ── ONLINE GUEST: early return — render received state only ──────────
       if (gameMode === 'online-guest') {
         if (_frameCount % 2 === 0) _sendGuestInput();
-        if (_guestLastState) applyGuestState(_guestLastState);
+        if (_guestLastState) { 
+          applyGuestState(_guestLastState); 
+          _guestLastState = null; 
+        }
 
         // Interpolation and Animations
         players.forEach(p => {
