@@ -2876,8 +2876,8 @@
       });
     }
 
-    function createSharedExplosion(pos, blastRange) {
-      createBarrelBlastRays(pos, blastRange);
+    function createSharedExplosion(pos, blastRange, ranges) {
+      createBarrelBlastRays(pos, blastRange, ranges);
       createSmokePuff(pos.clone());
       createSmokePuff(pos.clone().add(new THREE.Vector3(8, 0, 0)));
     }
@@ -4549,9 +4549,29 @@
                 });
                 if (barrelExploded) {
                   showFloatingText(explPos, "BLAST!", "#ff5722");
+                  
+                  // Calculate ranges blocked by trees/rocks
+                  const MAX_FLAME = 150;
+                  const ranges = {
+                    px: getBombFlameRange(explPos.x, explPos.z,  1,  0, MAX_FLAME),
+                    nx: getBombFlameRange(explPos.x, explPos.z, -1,  0, MAX_FLAME),
+                    pz: getBombFlameRange(explPos.x, explPos.z,  0,  1, MAX_FLAME),
+                    nz: getBombFlameRange(explPos.x, explPos.z,  0, -1, MAX_FLAME),
+                  };
+                  const HW = 14;
+                  const inBlastRay = (dx, dz) =>
+                    (dx > 0 && dx < ranges.px && Math.abs(dz) < HW) ||
+                    (dx < 0 && -dx < ranges.nx && Math.abs(dz) < HW) ||
+                    (dz > 0 && dz < ranges.pz && Math.abs(dx) < HW) ||
+                    (dz < 0 && -dz < ranges.nz && Math.abs(dx) < HW) ||
+                    Math.hypot(dx, dz) < 20; // Core blast radius
+
+                  createSharedExplosion(explPos, 40, ranges);
+
                   gameState.entities.zombies.forEach(z => {
                     if (!z.active || z.shocked) return;
-                    if (Math.hypot(z.group.position.x - explPos.x, z.group.position.z - explPos.z) < blastR) {
+                    const dx = z.group.position.x - explPos.x, dz = z.group.position.z - explPos.z;
+                    if (inBlastRay(dx, dz)) {
                       z.hp = 0; z.shocked = true; z.shockTimer = 0.5; z.shockTimerMax = 0.5; z.smokeTimer = 0;
                       z.group.traverse(c => { if (c.isMesh && !c.userData.isOutline) { const sm = (c.userData.origMat || c.material).clone(); sm.emissive = new THREE.Color(0xff2200); sm.emissiveIntensity = 3.0; c.material = sm; c.userData.shockMat = sm; } });
                       applyShockVisuals(z);
@@ -4570,7 +4590,8 @@
                   if (isMP()) updateMpHud();
                   players.forEach(p => {
                     if (!gameState.levelComplete || !p.alive) return;
-                    if (Math.hypot(p.x - explPos.x, p.z - explPos.z) < blastR) {
+                    const dx = p.x - explPos.x, dz = p.z - explPos.z;
+                    if (inBlastRay(dx, dz)) {
                       if (p.shield) { breakShield(p, "SHIELD BLOCKED!"); }
                       else { p.alive = false; p.group.visible = false; p.isDrawingWire = false; p.wirePoints = []; p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry(); p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry(); p.startMarker.visible = false; mpDeclareWinner(p); if (!gameState.transitioning) { gameState.transitioning = true; setTimeout(() => { setTimeout(() => startGame(gameState.level), 3000); }, 1000); } }
                     }
