@@ -3601,7 +3601,7 @@
         // Host: guest joined, start game now
         gameMode = 'online-host';
         _hideOnlinePanel();
-        launchLevel(1);
+        launchLevel(12);
       } else if (msg.t === 'joined') {
         onlineRoomCode = msg.code;
         _showOnlineScreen('op-waiting');
@@ -3836,7 +3836,9 @@
 
     document.getElementById('start-mp-btn').addEventListener('click', () => {
       gameMode = 'multi';
-      document.getElementById('level-select').classList.add('open');
+      document.getElementById('main-menu').style.display = 'none';
+      document.getElementById('main-menu').style.pointerEvents = '';
+      launchLevel(12);
     });
 
     function mpDeclareWinner(deadPlayer) {
