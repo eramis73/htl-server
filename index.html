@@ -3488,15 +3488,14 @@
 
     function updateMpHud() {
       const p1 = players[0], p2 = players[1];
+      _el('mp-p1-zombies').textContent = p1.inBombPhase ? ('💣' + (5 - p1.activeBombCount)) : p1.zombiesLeft;
+      _el('mp-p2-zombies').textContent = p2.inBombPhase ? ('💣' + (5 - p2.activeBombCount)) : p2.zombiesLeft;
       if (gameMode === 'online-host' || gameMode === 'online-guest') {
-        const remaining = Math.max(0, gameState.targetKills - gameState.kills);
-        _el('mp-p1-zombies').textContent = p1.score;
-        _el('mp-p2-zombies').textContent = p2.score;
         _el('mp-p1-name').textContent = 'HOST';
         _el('mp-p2-name').textContent = 'GUEST';
       } else {
-        _el('mp-p1-zombies').textContent = p1.inBombPhase ? ('💣' + (5 - p1.activeBombCount)) : p1.zombiesLeft;
-        _el('mp-p2-zombies').textContent = p2.inBombPhase ? ('💣' + (5 - p2.activeBombCount)) : p2.zombiesLeft;
+        _el('mp-p1-name').textContent = 'Player 1';
+        _el('mp-p2-name').textContent = 'Player 2';
       }
       _el('mp-p1-score').textContent = p1.score;
       _el('mp-p2-score').textContent = p2.score;
@@ -4463,7 +4462,7 @@
                     deadZs++;
                     centerPos.add(z.group.position);
                     // MP: decrement team counter for killed zombie
-                    if (gameMode === 'multi' && z.teamIdx >= 0) {
+                    if (isMP() && z.teamIdx >= 0) {
                       const owner = players[z.teamIdx];
                       owner.zombiesLeft = Math.max(0, owner.zombiesLeft - 1);
                       if (owner.zombiesLeft === 0 && !owner.inBombPhase) {
@@ -4526,7 +4525,7 @@
                       z.group.traverse(c => { if (c.isMesh && !c.userData.isOutline) { const sm = (c.userData.origMat || c.material).clone(); sm.emissive = new THREE.Color(0xff2200); sm.emissiveIntensity = 3.0; c.material = sm; c.userData.shockMat = sm; } });
                       applyShockVisuals(z);
                       deadZs++;
-                      if (gameMode === 'multi' && z.teamIdx >= 0) {
+                      if (isMP() && z.teamIdx >= 0) {
                         const owner = players[z.teamIdx];
                         owner.zombiesLeft = Math.max(0, owner.zombiesLeft - 1);
                         if (owner.zombiesLeft === 0 && !owner.inBombPhase) {
@@ -4675,7 +4674,7 @@
           });
 
           // Multiplayer: players cannot pass through each other
-          if (gameMode === 'multi') {
+          if (isMP()) {
             const other = players.find(pp => pp !== p && pp.alive && !pp.sinking);
             if (other) {
               const pdx = p.x - other.x, pdz = p.z - other.z;
@@ -4978,7 +4977,7 @@
             rescueRing.userData.mat = ringMat;
             worldGroup.add(rescueRing);
           }
-          if (gameMode === 'online-host' && !gameState.transitioning) {
+          if (isMP() && !gameState.transitioning) {
             gameState.transitioning = true;
             showFloatingText(players[0].group.position, '🎉 LEVEL COMPLETE!', '#4ade80');
             setTimeout(() => startGame(Math.min(gameState.level + 1, 30)), 3000);
