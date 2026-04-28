@@ -1110,6 +1110,8 @@
     // ── ONLINE MULTIPLAYER STATE ──────────────────────────────────────────
     const WS_URL = 'wss://htl-server-production.up.railway.app';
     let onlineWs = null, onlineRole = null, onlineRoomCode = null;
+    let _rtcPeer = null, _rtcChan = null, _rtcReady = false;
+    const _ICE = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
     let onlineP2Input = { vx: 0, vz: 0, fi: false, da: false, bm: false };
     let _zombieNetId = 0, _hostStateInt = null, _guestInputInt = null;
     let _levelSeed = 0, _lastSeed = 0, _guestBombQueued = false;
@@ -3553,6 +3555,7 @@
       document.getElementById('mp-hud').style.display = 'none';
       document.getElementById('btn-back').style.display = 'none';
       if (_wsKeepAlive) { clearInterval(_wsKeepAlive); _wsKeepAlive = null; }
+      _cleanupRTC();
       if (onlineWs) { try { onlineWs.onclose = null; onlineWs.close(); } catch(e){} onlineWs = null; }
       onlineRole = null; onlineRoomCode = null; _guestLastState = null;
       guestZombieMap.clear();
@@ -3591,6 +3594,52 @@
       };
     }
 
+    function _cleanupRTC() {
+      _rtcReady = false;
+      if (_rtcChan) { try { _rtcChan.close(); } catch(e){} _rtcChan = null; }
+      if (_rtcPeer) { try { _rtcPeer.close(); } catch(e){} _rtcPeer = null; }
+    }
+
+    function _setupRtcChannel(chan) {
+      _rtcChan = chan;
+      chan.onopen  = () => { _rtcReady = true; };
+      chan.onclose = () => { _rtcReady = false; };
+      chan.onerror = () => { _rtcReady = false; };
+      chan.onmessage = e => { try { _handleOnlineMsg(JSON.parse(e.data)); } catch(ex) {} };
+    }
+
+    function _initRTC(isHost) {
+      _cleanupRTC();
+      _rtcPeer = new RTCPeerConnection({ iceServers: _ICE });
+      _rtcPeer.onicecandidate = e => {
+        if (e.candidate && onlineWs && onlineWs.readyState === WebSocket.OPEN)
+          onlineWs.send(JSON.stringify({ t: 'rtc_ice', ice: e.candidate }));
+      };
+      _rtcPeer.onconnectionstatechange = () => {
+        if (_rtcPeer && (_rtcPeer.connectionState === 'failed' || _rtcPeer.connectionState === 'disconnected'))
+          _rtcReady = false;
+      };
+      if (isHost) {
+        const chan = _rtcPeer.createDataChannel('game', { ordered: false, maxRetransmits: 0 });
+        _setupRtcChannel(chan);
+        _rtcPeer.createOffer()
+          .then(o => _rtcPeer.setLocalDescription(o))
+          .then(() => {
+            if (onlineWs && onlineWs.readyState === WebSocket.OPEN)
+              onlineWs.send(JSON.stringify({ t: 'rtc_offer', sdp: _rtcPeer.localDescription }));
+          }).catch(() => {});
+      } else {
+        _rtcPeer.ondatachannel = e => _setupRtcChannel(e.channel);
+      }
+    }
+
+    function _rtcSend(data) {
+      if (_rtcReady && _rtcChan && _rtcChan.readyState === 'open') {
+        try { _rtcChan.send(data); return true; } catch(e) {}
+      }
+      return false;
+    }
+
     function _handleOnlineMsg(msg) {
       if (msg.t === 'created') {
         onlineRoomCode = msg.code;
@@ -3598,12 +3647,13 @@
         document.getElementById('op-status').textContent = 'Waiting for opponent…';
         _showOnlineScreen('op-creating');
       } else if (msg.t === 'peer_joined') {
-        // Host: guest joined — show level select (12-30) then launch chosen level
+        _initRTC(true);
         gameMode = 'online-host';
         _hideOnlinePanel();
         openMpLevelSelect();
       } else if (msg.t === 'joined') {
         onlineRoomCode = msg.code;
+        _initRTC(false);
         _showOnlineScreen('op-waiting');
         document.getElementById('op-wait-code').textContent = msg.code;
       } else if (msg.t === 'peer_left') {
@@ -3626,6 +3676,21 @@
         onlineP2Input.fi = !!msg.fi;
         onlineP2Input.da = !!msg.da;
         if (msg.bm) onlineP2Input.bm = true;
+      } else if (msg.t === 'rtc_offer') {
+        if (!_rtcPeer) return;
+        _rtcPeer.setRemoteDescription(msg.sdp)
+          .then(() => _rtcPeer.createAnswer())
+          .then(a => _rtcPeer.setLocalDescription(a))
+          .then(() => {
+            if (onlineWs && onlineWs.readyState === WebSocket.OPEN)
+              onlineWs.send(JSON.stringify({ t: 'rtc_answer', sdp: _rtcPeer.localDescription }));
+          }).catch(() => {});
+      } else if (msg.t === 'rtc_answer') {
+        if (!_rtcPeer) return;
+        _rtcPeer.setRemoteDescription(msg.sdp).catch(() => {});
+      } else if (msg.t === 'rtc_ice') {
+        if (!_rtcPeer) return;
+        _rtcPeer.addIceCandidate(msg.ice).catch(() => {});
       }
     }
 
@@ -3794,7 +3859,6 @@
     }
 
     function _sendGuestInput() {
-      if (!onlineWs || onlineWs.readyState !== WebSocket.OPEN) return;
       let vx = 0, vz = 0;
       if (keys['KeyW'] || keys['ArrowUp'])    vz -= 1;
       if (keys['KeyS'] || keys['ArrowDown'])  vz += 1;
@@ -3805,7 +3869,8 @@
       const fi = !!(keys['Space'] || keys['Enter'] || touch.fire);
       const da = !!(keys['ShiftLeft'] || keys['ShiftRight'] || touch.dash);
       const bm = !!_guestBombQueued; _guestBombQueued = false;
-      onlineWs.send(JSON.stringify({ t: 'input', vx: +vx.toFixed(2), vz: +vz.toFixed(2), fi, da, bm }));
+      const _im = JSON.stringify({ t: 'input', vx: +vx.toFixed(2), vz: +vz.toFixed(2), fi, da, bm });
+      if (!_rtcSend(_im) && onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(_im);
     }
 
     // ── Online panel UI helpers ──────────────────────────────────────────
@@ -4161,11 +4226,12 @@
         return;
       }
 
-      // ── ONLINE HOST: send state ──────────
+      // ── ONLINE HOST: send state via WebRTC (fallback: WebSocket) ──────────
       if (gameMode === 'online-host' && gameState.active) {
-        if (now - _lastStateSend >= 83) {
+        if (now - _lastStateSend >= 50) {
           _lastStateSend = now;
-          if (onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(_serializeState());
+          const _s = _serializeState();
+          if (!_rtcSend(_s) && onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(_s);
         }
       }
 
