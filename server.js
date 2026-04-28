@@ -37,7 +37,7 @@ wss.on('connection', ws => {
       const room = rooms.get(ws.roomCode);
       if (!room) return;
       const peer = ws.role === 'host' ? room.guest : room.host;
-      if (peer && peer.readyState === WebSocket.OPEN) peer.send(raw);
+      if (peer && peer.readyState === WebSocket.OPEN) peer.send(raw.toString());
     }
   });
 
