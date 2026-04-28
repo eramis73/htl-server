@@ -4083,6 +4083,8 @@
       requestAnimationFrame(animate);
       if (_TARGET_FRAME_MS > 0 && now - _lastFrameTime < _TARGET_FRAME_MS) return;
       _lastFrameTime = now; _frameCount++;
+      const arenaLimit = ARENA_LIMIT;
+      const arenaLimitX = ARENA_LIMIT_X;
 
       let dt = Math.min(clock.getDelta(), 0.1);
       if (gameState.slowMoTimer > 0) { gameState.slowMoTimer -= dt; dt *= 0.25; }
