@@ -3618,7 +3618,7 @@
         gameMode = 'online-guest';
         _hideOnlinePanel();
         launchLevel(msg.lvl);
-      } else if (msg.t === 'state') {
+      } else if (msg.t === 's') {
         _guestLastState = msg;
       } else if (msg.t === 'input') {
         onlineP2Input.vx = msg.vx || 0;
@@ -3630,110 +3630,145 @@
     }
 
     function _serializeState() {
-      const zs = [];
-      gameState.entities.zombies.forEach(z => {
-        if (!z.active) return;
-        zs.push({ id: z._netId, x: +(z.group.position.x.toFixed(1)), z: +(z.group.position.z.toFixed(1)), sh: z.shocked ? 1 : 0, fr: z.frozen ? 1 : 0, ti: z.teamIdx });
-      });
-      const serWire = p => p.isDrawingWire && p.wirePoints.length >= 2
-        ? p.wirePoints.map(pt => [+(pt.x.toFixed(1)), +(pt.z.toFixed(1))]) : [];
+      // Optimized compact format for mobile performance
+      const sZombies = [];
+      const zs = gameState.entities.zombies;
+      for (let i = 0; i < zs.length; i++) {
+        const z = zs[i];
+        if (!z.active) continue;
+        // [id, x, z, rot, hp, shocked, falling, team]
+        sZombies.push([
+          z._netId,
+          Math.round(z.group.position.x),
+          Math.round(z.group.position.z),
+          Math.round(z.group.rotation.y * 100) / 100,
+          z.hp,
+          z.shocked ? 1 : 0,
+          z.isFalling ? 1 : 0,
+          z.teamIdx
+        ]);
+      }
+
+      const sPlayers = [];
+      for (let i = 0; i < players.length; i++) {
+        const p = players[i];
+        // [x, z, alive, sinking, dashing, rot, wire]
+        sPlayers.push([
+          Math.round(p.x),
+          Math.round(p.z),
+          p.alive ? 1 : 0,
+          p.sinking ? 1 : 0,
+          p.isDashing ? 1 : 0,
+          Math.round(p.group.rotation.y * 100) / 100,
+          p.isDrawingWire ? 1 : 0
+        ]);
+      }
+
+      const sBombs = [];
+      const abs = activeBombs;
+      for (let i = 0; i < abs.length; i++) {
+        const b = abs[i];
+        if (b.done) continue;
+        sBombs.push([Math.round(b.group.position.x), Math.round(b.group.position.z), Math.round(b.fuseTimer * 10) / 10]);
+      }
+
+      // Barrels: only send indices of active ones (deterministically ordered)
+      const sBarrels = [];
+      const brs = gameState.entities.barrels;
+      for (let i = 0; i < brs.length; i++) {
+        if (brs[i].active) sBarrels.push(i);
+      }
+
       return JSON.stringify({
-        t: 'state',
-        p1x: +(players[0].x.toFixed(1)), p1z: +(players[0].z.toFixed(1)),
-        p1a: players[0].alive ? 1 : 0, p1s: players[0].score,
-        p1w: players[0].isDrawingWire ? 1 : 0, p1wp: serWire(players[0]),
-        p2x: +(players[1].x.toFixed(1)), p2z: +(players[1].z.toFixed(1)),
-        p2a: players[1].alive ? 1 : 0, p2s: players[1].score,
-        p2w: players[1].isDrawingWire ? 1 : 0, p2wp: serWire(players[1]),
-        kills: gameState.kills, tk: gameState.targetKills,
-        lt: +(gameState.levelTime.toFixed(1)), ld: gameState.levelDuration,
-        lc: gameState.levelComplete ? 1 : 0, zs
+        t: 's',
+        p: sPlayers,
+        z: sZombies,
+        b: sBombs,
+        ba: sBarrels,
+        k: gameState.kills,
+        tm: Math.round(gameState.levelTime)
       });
     }
 
-    function applyGuestState(s) {
-      if (!gameState.active) return;
-      players[0].x = s.p1x; players[0].z = s.p1z;
-      players[0].alive = !!s.p1a; players[0].score = s.p1s || 0;
-      if (players[0].group) { players[0].group.position.set(s.p1x, 0, s.p1z); players[0].group.visible = !!s.p1a; }
-      players[1].x = s.p2x; players[1].z = s.p2z;
-      players[1].alive = !!s.p2a; players[1].score = s.p2s || 0;
-      if (players[1].group) { players[1].group.position.set(s.p2x, 0, s.p2z); players[1].group.visible = !!s.p2a; }
-      gameState.kills = s.kills || 0;
-      gameState.targetKills = s.tk || gameState.targetKills;
-      gameState.levelTime = s.lt || 0;
-      if (s.ld) gameState.levelDuration = s.ld;
-      // Sync zombies by netId
-      const seen = new Set();
-      if (s.zs) {
-        s.zs.forEach(zd => {
-          seen.add(zd.id);
-          let z = guestZombieMap.get(zd.id);
+    function applyGuestState(msg) {
+      if (!msg) return;
+      
+      // Update players
+      if (msg.p) {
+        for (let i = 0; i < msg.p.length; i++) {
+          const pd = msg.p[i];
+          const p = players[i];
+          if (!p) continue;
+          p.x = pd[0]; p.z = pd[1];
+          p.alive = !!pd[2];
+          p.sinking = !!pd[3];
+          p.isDashing = !!pd[4];
+          p._gFaceY = pd[5];
+          p.isDrawingWire = !!pd[6];
+          if (p.group) {
+             p.group.position.set(p.x, 0, p.z);
+             p.group.visible = p.alive || p.sinking;
+          }
+          if (p.wireMesh) p.wireMesh.visible = p.isDrawingWire;
+          if (p.wireOuterMesh) p.wireOuterMesh.visible = p.isDrawingWire;
+          p._gMoving = true; // drive animation locally
+        }
+      }
+
+      // Update zombies
+      if (msg.z) {
+        const seenIds = new Set();
+        for (let i = 0; i < msg.z.length; i++) {
+          const zd = msg.z[i]; // [id, x, z, rot, hp, shocked, falling, team]
+          const zid = zd[0];
+          seenIds.add(zid);
+          let z = guestZombieMap.get(zid);
           if (!z || !z.active) {
-            z = spawnZombieAt(zd.x, zd.z, 12);
-            if (z) { z._netId = zd.id; guestZombieMap.set(zd.id, z); }
+            z = spawnZombieAt(zd[1], zd[2], 12);
+            if (z) { z._netId = zid; guestZombieMap.set(zid, z); }
           }
           if (z && z.group) {
-            z.group.position.set(zd.x, 0, zd.z);
-            z.frozen = !!zd.fr;
-            z.shocked = !!zd.sh;
-            // Apply team index and show cap ring
-            if (zd.ti !== undefined && zd.ti >= 0 && z.teamIdx !== zd.ti) {
-              z.teamIdx = zd.ti;
-              const capColor = zd.ti === 0 ? 0x1565c0 : 0xc62828;
-              if (z._teamCapMesh) {
-                z._teamCapMesh.visible = true;
-                z._teamCapMesh.material.color.setHex(capColor);
-                z._teamCapMesh.material.emissive.setHex(capColor);
+            z.group.position.x = zd[1];
+            z.group.position.z = zd[2];
+            z.group.rotation.y = zd[3];
+            z.hp = zd[4];
+            z.shocked = !!zd[5];
+            z.isFalling = !!zd[6];
+            z.teamIdx = zd[7];
+            if (z._teamCapMesh) {
+              z._teamCapMesh.visible = (z.teamIdx >= 0);
+              if (z.teamIdx >= 0) {
+                const c = z.teamIdx === 0 ? 0x1565c0 : 0xc62828;
+                z._teamCapMesh.material.color.setHex(c);
+                z._teamCapMesh.material.emissive.setHex(c);
               }
             }
           }
+        }
+        // Remove zombies not in the current state
+        guestZombieMap.forEach((z, id) => {
+          if (!seenIds.has(id)) { z.active = false; z.group.visible = false; guestZombieMap.delete(id); }
         });
       }
-      guestZombieMap.forEach((z, id) => {
-        if (!seen.has(id)) {
-          z.active = false;
-          if (z.group) z.group.visible = false;
-          guestZombieMap.delete(id);
-        }
-      });
-      // Sync wire geometry for both players
-      [[players[0], s.p1w, s.p1wp], [players[1], s.p2w, s.p2wp]].forEach(([p, wFlag, wPts]) => {
-        const drawing = !!wFlag && wPts && wPts.length >= 2;
-        const prevLen = p._guestWireLen || 0;
-        const newLen  = drawing ? wPts.length : 0;
-        p.isDrawingWire = drawing;
-        if (drawing) {
-          if (p.startMarker) { p.startMarker.position.set(wPts[0][0], 3.5, wPts[0][1]); p.startMarker.visible = true; }
-          if (newLen !== prevLen) {
-            const vPts = wPts.map(([x, z]) => new THREE.Vector3(x, 0, z));
-            const curve = new THREE.CatmullRomCurve3(vPts);
-            p.wireMesh.geometry.dispose();
-            p.wireMesh.geometry = new THREE.TubeGeometry(curve, Math.max(newLen * 2, 8), 2.5, 6, false);
-            p.wireOuterMesh.geometry.dispose();
-            p.wireOuterMesh.geometry = new THREE.TubeGeometry(curve, Math.max(newLen * 2, 8), 3.2, 6, false);
-            p._guestWireLen = newLen;
+
+      // Update barrels (active ones)
+      if (msg.ba) {
+        const brs = gameState.entities.barrels;
+        const activeSet = new Set(msg.ba);
+        for (let i = 0; i < brs.length; i++) {
+          const isActive = activeSet.has(i);
+          if (brs[i].active && !isActive) {
+             // Just exploded on host
+             createSharedExplosion(brs[i].mesh.position.clone(), 40);
           }
-        } else if (prevLen > 0) {
-          p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry();
-          p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry();
-          if (p.startMarker) p.startMarker.visible = false;
-          p._guestWireLen = 0;
+          brs[i].active = isActive;
+          brs[i].mesh.visible = isActive;
         }
-      });
-      // Track movement for guest-side animation
-      [0, 1].forEach(i => {
-        const p = players[i];
-        const nx = i === 0 ? s.p1x : s.p2x;
-        const nz = i === 0 ? s.p1z : s.p2z;
-        const dx = nx - (p._gLastX !== undefined ? p._gLastX : nx);
-        const dz = nz - (p._gLastZ !== undefined ? p._gLastZ : nz);
-        const dist = Math.hypot(dx, dz);
-        p._gMoving = dist > 0.3;
-        if (dist > 0.3) p._gFaceY = Math.atan2(dx, dz);
-        p._gLastX = nx; p._gLastZ = nz;
-      });
-      if (isMP()) updateMpHud();
+      }
+
+      if (msg.k !== undefined) gameState.kills = msg.k;
+      if (msg.tm !== undefined) gameState.levelTime = msg.tm;
+      updateHUD(); if (isMP()) updateMpHud();
     }
 
     function _sendGuestInput() {
@@ -4088,8 +4123,8 @@
         return;
       }
 
-      // ── ONLINE HOST: send state every 3 frames (~20fps at 60fps) ────────
-      if (gameMode === 'online-host' && gameState.active && _frameCount % 3 === 0) {
+      // ── ONLINE HOST: send state every 4 frames (~15fps at 60fps) ────────
+      if (gameMode === 'online-host' && gameState.active && _frameCount % 4 === 0) {
         if (onlineWs && onlineWs.readyState === WebSocket.OPEN) {
           onlineWs.send(_serializeState());
         }
