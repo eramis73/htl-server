@@ -4085,9 +4085,11 @@
       _lastFrameTime = now; _frameCount++;
       const arenaLimit = ARENA_LIMIT;
       const arenaLimitX = ARENA_LIMIT_X;
+      const conf = LEVELS[gameState.level - 1] || LEVELS[LEVELS.length - 1];
 
       let dt = Math.min(clock.getDelta(), 0.1);
       if (gameState.slowMoTimer > 0) { gameState.slowMoTimer -= dt; dt *= 0.25; }
+      const time = clock.getElapsedTime();
       
       const isLakeDeath = (x, z) => {
         let dead = false;
