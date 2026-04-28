@@ -4116,17 +4116,24 @@
           
           // Smoothly interpolate to target position
           if (p._targetX !== undefined) {
-            const lerpS = 0.22; 
-            p.x += (p._targetX - p.x) * lerpS;
-            p.z += (p._targetZ - p.z) * lerpS;
-            p.group.position.set(p.x, 0, p.z);
+            const dx = p._targetX - p.x;
+            const dz = p._targetZ - p.z;
+            const dist = Math.hypot(dx, dz);
             
-            const dist = Math.hypot(p._targetX - p.x, p._targetZ - p.z);
+            if (dist > 25) {
+              // Lag spike: snap to position
+              p.x = p._targetX; p.z = p._targetZ;
+            } else {
+              // Smooth lerp: 0.35 is good for 30fps updates on 60fps display
+              p.x += dx * 0.35;
+              p.z += dz * 0.35;
+            }
+            p.group.position.set(p.x, 0, p.z);
             p._gMoving = dist > 0.4;
           }
 
           if (p.alive && p._gMoving) {
-            p.walkCycle = (p.walkCycle || 0) + dt * 9.6;
+            p.walkCycle = (p.walkCycle || 0) + dt * 10.5; // faster animation for guest
             if (p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
             p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
             p.rLeg.rotation.x = -Math.sin(p.walkCycle) * 1.2;
@@ -4144,10 +4151,17 @@
         guestZombieMap.forEach(z => {
           if (!z.active || !z.group) return;
           if (z._tX !== undefined) {
-            const zLerp = 0.18;
-            z.group.position.x += (z._tX - z.group.position.x) * zLerp;
-            z.group.position.z += (z._tZ - z.group.position.z) * zLerp;
-            z.group.rotation.y += (z._tR - z.group.rotation.y) * zLerp;
+            const zdx = z._tX - z.group.position.x;
+            const zdz = z._tZ - z.group.position.z;
+            const zDist = Math.hypot(zdx, zdz);
+            
+            if (zDist > 20) {
+              z.group.position.set(z._tX, 0, z._tZ);
+            } else {
+              z.group.position.x += zdx * 0.32;
+              z.group.position.z += zdz * 0.32;
+              z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.32;
+            }
           }
         });
 
