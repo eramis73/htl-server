@@ -4119,7 +4119,7 @@
             else { 
               z.group.position.x += zdx * 0.22; 
               z.group.position.z += zdz * 0.22; 
-              z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.22; 
+                z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.22;
             }
           }
         });
@@ -4338,6 +4338,19 @@
           });
           explosions.splice(i, 1);
         }
+      }
+
+      // ── ONLINE GUEST: skip all game logic — camera + render only ──────────
+      if (gameMode === 'online-guest') {
+        if (isMobile) {
+          cameraDynX += (0 - cameraDynX) * Math.min(1, dt * 3.5);
+          cameraDynZ += (0 - cameraDynZ) * Math.min(1, dt * 3.5);
+        }
+        camera.position.set(cameraDynX, 400, cameraDynZ);
+        camera.lookAt(cameraDynX, 0, cameraDynZ);
+        if (now - _lastHudUpdate > 250) { _lastHudUpdate = now; updateHUD(); if (isMP()) updateMpHud(); }
+        renderer.render(scene, camera);
+        return;
       }
 
       if (gameState.active && !gameState.transitioning) {
