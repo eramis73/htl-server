@@ -3633,7 +3633,7 @@
       const zs = [];
       gameState.entities.zombies.forEach(z => {
         if (!z.active) return;
-        zs.push({ id: z._netId, x: +(z.group.position.x.toFixed(1)), z: +(z.group.position.z.toFixed(1)), sh: z.shocked ? 1 : 0, fr: z.frozen ? 1 : 0 });
+        zs.push({ id: z._netId, x: +(z.group.position.x.toFixed(1)), z: +(z.group.position.z.toFixed(1)), sh: z.shocked ? 1 : 0, fr: z.frozen ? 1 : 0, ti: z.teamIdx });
       });
       const serWire = p => p.isDrawingWire && p.wirePoints.length >= 2
         ? p.wirePoints.map(pt => [+(pt.x.toFixed(1)), +(pt.z.toFixed(1))]) : [];
@@ -3673,7 +3673,21 @@
             z = spawnZombieAt(zd.x, zd.z, 12);
             if (z) { z._netId = zd.id; guestZombieMap.set(zd.id, z); }
           }
-          if (z && z.group) { z.group.position.set(zd.x, 0, zd.z); z.frozen = !!zd.fr; z.shocked = !!zd.sh; }
+          if (z && z.group) {
+            z.group.position.set(zd.x, 0, zd.z);
+            z.frozen = !!zd.fr;
+            z.shocked = !!zd.sh;
+            // Apply team index and show cap ring
+            if (zd.ti !== undefined && zd.ti >= 0 && z.teamIdx !== zd.ti) {
+              z.teamIdx = zd.ti;
+              const capColor = zd.ti === 0 ? 0x1565c0 : 0xc62828;
+              if (z._teamCapMesh) {
+                z._teamCapMesh.visible = true;
+                z._teamCapMesh.material.color.setHex(capColor);
+                z._teamCapMesh.material.emissive.setHex(capColor);
+              }
+            }
+          }
         });
       }
       guestZombieMap.forEach((z, id) => {
