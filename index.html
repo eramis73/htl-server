@@ -3598,10 +3598,10 @@
         document.getElementById('op-status').textContent = 'Waiting for opponent…';
         _showOnlineScreen('op-creating');
       } else if (msg.t === 'peer_joined') {
-        // Host: guest joined, start game now
+        // Host: guest joined — show level select (12-30) then launch chosen level
         gameMode = 'online-host';
         _hideOnlinePanel();
-        launchLevel(12);
+        openMpLevelSelect();
       } else if (msg.t === 'joined') {
         onlineRoomCode = msg.code;
         _showOnlineScreen('op-waiting');
@@ -3814,11 +3814,28 @@
     for (let i = 1; i <= 30; i++) {
       const btn = document.createElement('button');
       btn.className = 'ls-btn';
+      btn.dataset.level = i;
       btn.innerHTML = `<span class="ls-num">LEVEL ${i}</span>
         <span style="font-size:22px">${LEVEL_ICONS[i-1]}</span>
         <span class="ls-name">${LEVEL_NAMES[i-1]}</span>`;
       btn.addEventListener('click', () => launchLevel(i));
       lsGrid.appendChild(btn);
+    }
+
+    function openMpLevelSelect() {
+      // Show only levels 12-30 for MP/online
+      lsGrid.querySelectorAll('.ls-btn').forEach(btn => {
+        btn.style.display = parseInt(btn.dataset.level) >= 12 ? '' : 'none';
+      });
+      document.getElementById('level-select').classList.add('open');
+    }
+
+    function openSingleLevelSelect() {
+      // Show all levels for single player
+      lsGrid.querySelectorAll('.ls-btn').forEach(btn => {
+        btn.style.display = '';
+      });
+      document.getElementById('level-select').classList.add('open');
     }
 
 
@@ -3829,16 +3846,14 @@
 
     document.getElementById('start-btn').addEventListener('click', () => {
       gameMode = 'single';
-      document.getElementById('level-select').classList.add('open');
+      openSingleLevelSelect();
     });
 
     const playerNames = ['Player 1', 'Player 2'];
 
     document.getElementById('start-mp-btn').addEventListener('click', () => {
       gameMode = 'multi';
-      document.getElementById('main-menu').style.display = 'none';
-      document.getElementById('main-menu').style.pointerEvents = '';
-      launchLevel(12);
+      openMpLevelSelect();
     });
 
     function mpDeclareWinner(deadPlayer) {
