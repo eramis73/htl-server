@@ -4056,143 +4056,93 @@
 
     function applyPillarPhysics(x, z, r) {
       let nx = x, nz = z;
-      // Two iterations: more robust with many objects
       for (let _iter = 0; _iter < 2; _iter++) {
         gameState.entities.trees.forEach(t => {
-          const dx = nx - t.x; const dz = nz - t.z;
-          const dSq = dx * dx + dz * dz;
-          const minRadi = t.radius + r;
+          const dx = nx - t.x, dz = nz - t.z, dSq = dx * dx + dz * dz, minRadi = t.radius + r;
           if (dSq < minRadi * minRadi) {
-            const dist = Math.sqrt(dSq) || 0.1;
-            const push = (minRadi - dist) / dist;
+            const dist = Math.sqrt(dSq) || 0.1, push = (minRadi - dist) / dist;
             nx += dx * push; nz += dz * push;
           }
         });
       }
-      // Cage collision — girl cage acts as solid obstacle
       if (cagedGirl && gameState.cagePos) {
-        const dx = nx - gameState.cagePos.x;
-        const dz = nz - gameState.cagePos.z;
-        const dSq = dx * dx + dz * dz;
-        const minRadi = 10 + r;
+        const dx = nx - gameState.cagePos.x, dz = nz - gameState.cagePos.z, dSq = dx * dx + dz * dz, minRadi = 10 + r;
         if (dSq < minRadi * minRadi) {
-          const dist = Math.sqrt(dSq) || 0.1;
-          const push = (minRadi - dist) / dist;
+          const dist = Math.sqrt(dSq) || 0.1, push = (minRadi - dist) / dist;
           nx += dx * push; nz += dz * push;
         }
       }
       return { x: nx, z: nz };
     }
 
-    let _frameCount = 0;
-    let _lastFrameTime = 0;
-    const _TARGET_FRAME_MS = _isMobileDevice ? 1000 / 30 : 0;
+    let _frameCount = 0, _lastFrameTime = 0;
+    const _TARGET_FRAME_MS = _isMobileDevice ? 1000/30 : 0;
+
     function animate(now) {
       requestAnimationFrame(animate);
       if (_TARGET_FRAME_MS > 0 && now - _lastFrameTime < _TARGET_FRAME_MS) return;
-      _lastFrameTime = now;
-      _frameCount++;
-      const arenaLimit = ARENA_LIMIT;
-      const arenaLimitX = ARENA_LIMIT_X;
+      _lastFrameTime = now; _frameCount++;
+
       let dt = Math.min(clock.getDelta(), 0.1);
       if (gameState.slowMoTimer > 0) { gameState.slowMoTimer -= dt; dt *= 0.25; }
-      const time = clock.getElapsedTime();
-      const conf = LEVELS[gameState.level - 1] || LEVELS[LEVELS.length - 1];
-
+      
       const isLakeDeath = (x, z) => {
         let dead = false;
         gameState.lakes.forEach(lk => { if (Math.hypot(x - lk.x, z - lk.z) < lk.r - 2.0) dead = true; });
         return dead;
       };
 
-      // ── ONLINE GUEST: early return — render received state only ──────────
+      // ── ONLINE GUEST: Interpolation ──────────
       if (gameMode === 'online-guest') {
         if (_frameCount % 2 === 0) _sendGuestInput();
-        if (_guestLastState) { 
-          applyGuestState(_guestLastState); 
-          _guestLastState = null; 
-        }
+        if (_guestLastState) { applyGuestState(_guestLastState); _guestLastState = null; }
 
-        // Interpolation and Animations
         players.forEach(p => {
-          if (!p.group || !p.lLeg) return;
-          
-          // Smoothly interpolate to target position
+          if (!p.group) return;
           if (p._targetX !== undefined) {
-            const dx = p._targetX - p.x;
-            const dz = p._targetZ - p.z;
-            const dist = Math.hypot(dx, dz);
-            
-            if (dist > 25) {
-              // Lag spike: snap to position
-              p.x = p._targetX; p.z = p._targetZ;
-            } else {
-              // Smooth lerp: 0.35 is good for 30fps updates on 60fps display
-              p.x += dx * 0.35;
-              p.z += dz * 0.35;
-            }
+            const dx = p._targetX - p.x, dz = p._targetZ - p.z, dist = Math.hypot(dx, dz);
+            if (dist > 30) { p.x = p._targetX; p.z = p._targetZ; }
+            else { p.x += dx * 0.32; p.z += dz * 0.32; }
             p.group.position.set(p.x, 0, p.z);
             p._gMoving = dist > 0.4;
           }
-
-          if (p.alive && p._gMoving) {
-            p.walkCycle = (p.walkCycle || 0) + dt * 10.5; // faster animation for guest
-            if (p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
-            p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
-            p.rLeg.rotation.x = -Math.sin(p.walkCycle) * 1.2;
-            p.lArm.rotation.x = -Math.sin(p.walkCycle) * 1.2;
-            p.rArm.rotation.x =  Math.sin(p.walkCycle) * 1.2;
-            p.group.position.y = Math.abs(Math.cos(p.walkCycle)) * 0.8;
-          } else {
-            p.lLeg.rotation.x = 0; p.rLeg.rotation.x = 0;
-            p.lArm.rotation.x = 0; p.rArm.rotation.x = 0;
-            p.group.position.y = 0;
-          }
         });
 
-        // Interpolate Zombies
         guestZombieMap.forEach(z => {
           if (!z.active || !z.group) return;
           if (z._tX !== undefined) {
-            const zdx = z._tX - z.group.position.x;
-            const zdz = z._tZ - z.group.position.z;
-            const zDist = Math.hypot(zdx, zdz);
-            
-            if (zDist > 20) {
-              z.group.position.set(z._tX, 0, z._tZ);
-            } else {
-              z.group.position.x += zdx * 0.32;
-              z.group.position.z += zdz * 0.32;
-              z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.32;
+            const zdx = z._tX - z.group.position.x, zdz = z._tZ - z.group.position.z, zDist = Math.hypot(zdx, zdz);
+            if (zDist > 25) { z.group.position.set(z._tX, 0, z._tZ); }
+            else { 
+              z.group.position.x += zdx * 0.22; 
+              z.group.position.z += zdz * 0.22; 
+              z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.22; 
             }
           }
         });
-
-        if (isMobile) {
-          const lp = players[1];
-          if (lp && lp.alive && lp.group) {
-            const zoneZStart = ARENA_LIMIT / 3;
-            const factorZ = Math.max(0, Math.min(1, (lp.z - zoneZStart) / (ARENA_LIMIT * 0.67)));
-            cameraDynZ += (factorZ * 95 - cameraDynZ) * Math.min(1, dt * 3.5);
-            const zone5Start = ARENA_LIMIT_X * 0.6, zone1Start = -ARENA_LIMIT_X * 0.6;
-            let targetX = 0;
-            if (lp.x > zone5Start) targetX = ((lp.x - zone5Start) / (ARENA_LIMIT_X * 0.4)) * 120;
-            else if (lp.x < zone1Start) targetX = -((lp.x - zone1Start) / (-ARENA_LIMIT_X * 0.4)) * 120;
-            cameraDynX += (targetX - cameraDynX) * Math.min(1, dt * 3.5);
-          }
-        } else { cameraDynX = -20; cameraDynZ = 0; }
-        camera.position.set(cameraDynX, 400, cameraDynZ);
-        camera.lookAt(cameraDynX, 0, cameraDynZ);
-        renderer.render(scene, camera);
-        return;
-      }
-
-      // ── ONLINE HOST: send state every 2 frames (~30fps at 60fps) ────────
-      if (gameMode === 'online-host' && gameState.active && _frameCount % 2 === 0) {
-        if (onlineWs && onlineWs.readyState === WebSocket.OPEN) {
-          onlineWs.send(_serializeState());
+      } else {
+        // ── HOST / LOCAL: Game Logic ──────────
+        if (gameMode === 'online-host' && gameState.active && _frameCount % 2 === 0) {
+          if (onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(_serializeState());
         }
-      }
+
+      // ── SHARED VISUALS: Runs for Host, Guest and Local ──────────
+      
+      // Update Animations (Walk Cycles)
+      players.forEach(p => {
+        if (!p.alive || !p.group || !p.lLeg) return;
+        if ((gameMode !== 'online-guest' && p.isMoving) || (gameMode === 'online-guest' && p._gMoving)) {
+          p.walkCycle = (p.walkCycle || 0) + dt * 10;
+          if (gameMode === 'online-guest' && p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
+          p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
+          p.rLeg.rotation.x = -Math.sin(p.walkCycle) * 1.2;
+          p.lArm.rotation.x = -Math.sin(p.walkCycle) * 1.2;
+          p.rArm.rotation.x =  Math.sin(p.walkCycle) * 1.2;
+          p.group.position.y = Math.abs(Math.cos(p.walkCycle)) * 0.8;
+        } else {
+          p.lLeg.rotation.x = 0; p.rLeg.rotation.x = 0; p.lArm.rotation.x = 0; p.rArm.rotation.x = 0; p.group.position.y = 0;
+        }
+      });
 
       // Clean up old explosions if too many accumulate
       if (explosions.length > 100) {
