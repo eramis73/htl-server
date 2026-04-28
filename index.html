@@ -3630,7 +3630,7 @@
     }
 
     function _serializeState() {
-      // Optimized compact format for mobile performance
+      // High-frequency compact state
       const sZombies = [];
       const zs = gameState.entities.zombies;
       for (let i = 0; i < zs.length; i++) {
@@ -3639,8 +3639,8 @@
         // [id, x, z, rot, hp, shocked, falling, team]
         sZombies.push([
           z._netId,
-          Math.round(z.group.position.x),
-          Math.round(z.group.position.z),
+          Math.round(z.group.position.x * 10) / 10,
+          Math.round(z.group.position.z * 10) / 10,
           Math.round(z.group.rotation.y * 100) / 100,
           z.hp,
           z.shocked ? 1 : 0,
@@ -3652,15 +3652,18 @@
       const sPlayers = [];
       for (let i = 0; i < players.length; i++) {
         const p = players[i];
-        // [x, z, alive, sinking, dashing, rot, wire]
+        const wPts = (p.isDrawingWire && p.wirePoints.length >= 2) 
+          ? p.wirePoints.map(wp => [Math.round(wp.x), Math.round(wp.z)]) : null;
+        // [x, z, alive, sinking, dashing, rot, wireFlag, wirePoints]
         sPlayers.push([
-          Math.round(p.x),
-          Math.round(p.z),
+          Math.round(p.x * 10) / 10,
+          Math.round(p.z * 10) / 10,
           p.alive ? 1 : 0,
           p.sinking ? 1 : 0,
           p.isDashing ? 1 : 0,
           Math.round(p.group.rotation.y * 100) / 100,
-          p.isDrawingWire ? 1 : 0
+          p.isDrawingWire ? 1 : 0,
+          wPts
         ]);
       }
 
@@ -3672,7 +3675,6 @@
         sBombs.push([Math.round(b.group.position.x), Math.round(b.group.position.z), Math.round(b.fuseTimer * 10) / 10]);
       }
 
-      // Barrels: only send indices of active ones (deterministically ordered)
       const sBarrels = [];
       const brs = gameState.entities.barrels;
       for (let i = 0; i < brs.length; i++) {
@@ -3693,29 +3695,55 @@
     function applyGuestState(msg) {
       if (!msg) return;
       
-      // Update players
+      // Interpolated update for players
       if (msg.p) {
         for (let i = 0; i < msg.p.length; i++) {
-          const pd = msg.p[i];
+          const pd = msg.p[i]; // [x, z, alive, sinking, dashing, rot, wireFlag, wirePoints]
           const p = players[i];
           if (!p) continue;
-          p.x = pd[0]; p.z = pd[1];
+          
+          p._targetX = pd[0]; p._targetZ = pd[1];
           p.alive = !!pd[2];
           p.sinking = !!pd[3];
           p.isDashing = !!pd[4];
           p._gFaceY = pd[5];
+          
+          const wasDrawing = p.isDrawingWire;
           p.isDrawingWire = !!pd[6];
+          const wPts = pd[7];
+
           if (p.group) {
-             p.group.position.set(p.x, 0, p.z);
+             // For guest's own character, we don't snap position if we want prediction, 
+             // but here we use smooth lerp in animate()
              p.group.visible = p.alive || p.sinking;
           }
-          if (p.wireMesh) p.wireMesh.visible = p.isDrawingWire;
-          if (p.wireOuterMesh) p.wireOuterMesh.visible = p.isDrawingWire;
-          p._gMoving = true; // drive animation locally
+          
+          // Wire sync logic
+          if (p.isDrawingWire && wPts && wPts.length >= 2) {
+            if (p.wireMesh) {
+              p.wireMesh.visible = true;
+              const prevLen = p._gWLen || 0;
+              if (wPts.length !== prevLen) {
+                const vPts = wPts.map(pt => new THREE.Vector3(pt[0], 0, pt[1]));
+                const curve = new THREE.CatmullRomCurve3(vPts);
+                p.wireMesh.geometry.dispose();
+                p.wireMesh.geometry = new THREE.TubeGeometry(curve, Math.max(wPts.length * 2, 8), 2.5, 6, false);
+                p.wireOuterMesh.geometry.dispose();
+                p.wireOuterMesh.geometry = new THREE.TubeGeometry(curve, Math.max(wPts.length * 2, 8), 3.2, 6, false);
+                p._gWLen = wPts.length;
+                if (p.startMarker) { p.startMarker.position.set(wPts[0][0], 3.5, wPts[0][1]); p.startMarker.visible = true; }
+              }
+            }
+          } else {
+            if (p.wireMesh) p.wireMesh.visible = false;
+            if (p.wireOuterMesh) p.wireOuterMesh.visible = false;
+            if (p.startMarker) p.startMarker.visible = false;
+            p._gWLen = 0;
+          }
         }
       }
 
-      // Update zombies
+      // Interpolated update for zombies
       if (msg.z) {
         const seenIds = new Set();
         for (let i = 0; i < msg.z.length; i++) {
@@ -3728,9 +3756,8 @@
             if (z) { z._netId = zid; guestZombieMap.set(zid, z); }
           }
           if (z && z.group) {
-            z.group.position.x = zd[1];
-            z.group.position.z = zd[2];
-            z.group.rotation.y = zd[3];
+            z._tX = zd[1]; z._tZ = zd[2]; // Target positions for lerp
+            z._tR = zd[3];
             z.hp = zd[4];
             z.shocked = !!zd[5];
             z.isFalling = !!zd[6];
@@ -3745,22 +3772,17 @@
             }
           }
         }
-        // Remove zombies not in the current state
         guestZombieMap.forEach((z, id) => {
           if (!seenIds.has(id)) { z.active = false; z.group.visible = false; guestZombieMap.delete(id); }
         });
       }
 
-      // Update barrels (active ones)
       if (msg.ba) {
         const brs = gameState.entities.barrels;
         const activeSet = new Set(msg.ba);
         for (let i = 0; i < brs.length; i++) {
           const isActive = activeSet.has(i);
-          if (brs[i].active && !isActive) {
-             // Just exploded on host
-             createSharedExplosion(brs[i].mesh.position.clone(), 40);
-          }
+          if (brs[i].active && !isActive) createSharedExplosion(brs[i].mesh.position.clone(), 40);
           brs[i].active = isActive;
           brs[i].mesh.visible = isActive;
         }
@@ -4087,10 +4109,23 @@
       if (gameMode === 'online-guest') {
         if (_frameCount % 2 === 0) _sendGuestInput();
         if (_guestLastState) applyGuestState(_guestLastState);
-        // Drive player animations locally at full fps
+
+        // Interpolation and Animations
         players.forEach(p => {
-          if (!p.alive || !p.group || !p.lLeg) return;
-          if (p._gMoving) {
+          if (!p.group || !p.lLeg) return;
+          
+          // Smoothly interpolate to target position
+          if (p._targetX !== undefined) {
+            const lerpS = 0.22; 
+            p.x += (p._targetX - p.x) * lerpS;
+            p.z += (p._targetZ - p.z) * lerpS;
+            p.group.position.set(p.x, 0, p.z);
+            
+            const dist = Math.hypot(p._targetX - p.x, p._targetZ - p.z);
+            p._gMoving = dist > 0.4;
+          }
+
+          if (p.alive && p._gMoving) {
             p.walkCycle = (p.walkCycle || 0) + dt * 9.6;
             if (p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
             p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
@@ -4104,6 +4139,18 @@
             p.group.position.y = 0;
           }
         });
+
+        // Interpolate Zombies
+        guestZombieMap.forEach(z => {
+          if (!z.active || !z.group) return;
+          if (z._tX !== undefined) {
+            const zLerp = 0.18;
+            z.group.position.x += (z._tX - z.group.position.x) * zLerp;
+            z.group.position.z += (z._tZ - z.group.position.z) * zLerp;
+            z.group.rotation.y += (z._tR - z.group.rotation.y) * zLerp;
+          }
+        });
+
         if (isMobile) {
           const lp = players[1];
           if (lp && lp.alive && lp.group) {
@@ -4123,8 +4170,8 @@
         return;
       }
 
-      // ── ONLINE HOST: send state every 4 frames (~15fps at 60fps) ────────
-      if (gameMode === 'online-host' && gameState.active && _frameCount % 4 === 0) {
+      // ── ONLINE HOST: send state every 2 frames (~30fps at 60fps) ────────
+      if (gameMode === 'online-host' && gameState.active && _frameCount % 2 === 0) {
         if (onlineWs && onlineWs.readyState === WebSocket.OPEN) {
           onlineWs.send(_serializeState());
         }
