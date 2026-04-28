@@ -5226,7 +5226,7 @@
             }
 
             let cd = Infinity, tX = z.group.position.x, tZ = z.group.position.z;
-            const targetPool = (gameMode === 'multi' && z.teamIdx >= 0) ? [players[z.teamIdx]] : players;
+            const targetPool = (isMP() && z.teamIdx >= 0) ? [players[z.teamIdx]] : players;
             targetPool.forEach(p => {
               if (p.alive) {
                 const d = Math.hypot(p.x - z.group.position.x, p.z - z.group.position.z);
