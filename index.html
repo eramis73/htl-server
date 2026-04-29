@@ -3918,10 +3918,9 @@
           } else if (!isLocalGuest) {
             // Hide wire for remote P1 when not drawing
             if (p.wireMesh) p.wireMesh.visible = false;
-              if (p.wireOuterMesh) p.wireOuterMesh.visible = false;
-              if (p.startMarker) p.startMarker.visible = false;
-              p._gWLen = 0;
-            }
+            if (p.wireOuterMesh) p.wireOuterMesh.visible = false;
+            if (p.startMarker) p.startMarker.visible = false;
+            p._gWLen = 0;
           }
         }
       }
