@@ -826,6 +826,7 @@
     <button id="btn-back" title="Back to Menu">←</button>
 
     <div id="hud" style="display: none;">
+      <div id="rtc-indicator" style="position:fixed;top:6px;right:8px;font-size:11px;font-family:monospace;font-weight:bold;z-index:999;opacity:0.75;pointer-events:none;"></div>
       <div class="hud-item" id="hud-level">
         <span class="hud-icon">⚔️</span>
         <span class="hud-value" id="hud-level-val">1</span>
@@ -3598,13 +3599,21 @@
       _rtcReady = false;
       if (_rtcChan) { try { _rtcChan.close(); } catch(e){} _rtcChan = null; }
       if (_rtcPeer) { try { _rtcPeer.close(); } catch(e){} _rtcPeer = null; }
+      _updateRtcIndicator();
+    }
+
+    function _updateRtcIndicator() {
+      const el = document.getElementById('rtc-indicator');
+      if (!el) return;
+      if (_rtcReady) { el.textContent = '● P2P'; el.style.color = '#4ade80'; }
+      else { el.textContent = '● WS'; el.style.color = '#facc15'; }
     }
 
     function _setupRtcChannel(chan) {
       _rtcChan = chan;
-      chan.onopen  = () => { _rtcReady = true; };
-      chan.onclose = () => { _rtcReady = false; };
-      chan.onerror = () => { _rtcReady = false; };
+      chan.onopen  = () => { _rtcReady = true;  _updateRtcIndicator(); };
+      chan.onclose = () => { _rtcReady = false; _updateRtcIndicator(); };
+      chan.onerror = () => { _rtcReady = false; _updateRtcIndicator(); };
       chan.onmessage = e => { try { _handleOnlineMsg(JSON.parse(e.data)); } catch(ex) {} };
     }
 
@@ -3620,7 +3629,7 @@
           _rtcReady = false;
       };
       if (isHost) {
-        const chan = _rtcPeer.createDataChannel('game', { ordered: false, maxRetransmits: 0 });
+        const chan = _rtcPeer.createDataChannel('game', { ordered: true });
         _setupRtcChannel(chan);
         _rtcPeer.createOffer()
           .then(o => _rtcPeer.setLocalDescription(o))
@@ -3766,20 +3775,30 @@
           const pd = msg.p[i]; // [x, z, alive, sinking, dashing, rot, wireFlag, wirePoints]
           const p = players[i];
           if (!p) continue;
-          
+
+          if (i === 1) {
+            // Guest's own player (P2): never update position from host.
+            // Self-prediction in animate() is authoritative.
+            // Only sync state flags and hard-snap if teleport (>100u).
+            p.alive = !!pd[2]; p.sinking = !!pd[3]; p.isDashing = !!pd[4];
+            p.isDrawingWire = !!pd[6];
+            if (p.group) p.group.visible = p.alive || p.sinking;
+            const snapDist = Math.hypot(pd[0] - p.x, pd[1] - p.z);
+            if (snapDist > 100) { p.x = pd[0]; p.z = pd[1]; if (p.group) p.group.position.set(p.x, 0, p.z); }
+            continue;
+          }
+
           p._targetX = pd[0]; p._targetZ = pd[1];
           p.alive = !!pd[2];
           p.sinking = !!pd[3];
           p.isDashing = !!pd[4];
           p._gFaceY = pd[5];
-          
+
           const wasDrawing = p.isDrawingWire;
           p.isDrawingWire = !!pd[6];
           const wPts = pd[7];
 
           if (p.group) {
-             // For guest's own character, we don't snap position if we want prediction, 
-             // but here we use smooth lerp in animate()
              p.group.visible = p.alive || p.sinking;
           }
           
@@ -4167,17 +4186,39 @@
         if (now - _lastInputSend >= 50) _sendGuestInput();
         if (_guestLastState) { applyGuestState(_guestLastState); _guestLastState = null; }
 
-        // Player lerp toward host targets
-        players.forEach(p => {
-          if (!p.group) return;
-          if (p._targetX !== undefined) {
-            const dx = p._targetX - p.x, dz = p._targetZ - p.z, dist = Math.hypot(dx, dz);
-            if (dist > 30) { p.x = p._targetX; p.z = p._targetZ; }
-            else { p.x += dx * 0.32; p.z += dz * 0.32; }
-            p.group.position.set(p.x, 0, p.z);
-            p._gMoving = dist > 0.4;
+        // P1 (host's player): lerp toward host-reported position
+        const _hp = players[0];
+        if (_hp && _hp.group && _hp._targetX !== undefined) {
+          const _dx = _hp._targetX - _hp.x, _dz = _hp._targetZ - _hp.z, _d = Math.hypot(_dx, _dz);
+          if (_d > 30) { _hp.x = _hp._targetX; _hp.z = _hp._targetZ; }
+          else { _hp.x += _dx * 0.35; _hp.z += _dz * 0.35; }
+          _hp.group.position.set(_hp.x, _hp.group.position.y, _hp.z);
+          _hp._gMoving = _d > 0.4;
+        }
+
+        // P2 (guest's own player): self-prediction — apply input immediately
+        const _gp = players[1];
+        if (_gp && _gp.group && _gp.alive && !_gp.sinking) {
+          let _pvx = 0, _pvz = 0;
+          if (keys['KeyW'] || keys['ArrowUp'])    _pvz -= 1;
+          if (keys['KeyS'] || keys['ArrowDown'])  _pvz += 1;
+          if (keys['KeyA'] || keys['ArrowLeft'])  _pvx -= 1;
+          if (keys['KeyD'] || keys['ArrowRight']) _pvx += 1;
+          _pvx += touch.vx; _pvz += touch.vz;
+          const _pLen = Math.hypot(_pvx, _pvz);
+          if (_pLen > 0) {
+            _pvx /= _pLen; _pvz /= _pLen;
+            _gp.x += _pvx * 75 * dt;
+            _gp.z += _pvz * 75 * dt;
+            _gp.x = Math.max(-ARENA_LIMIT_X + 10, Math.min(ARENA_LIMIT_X - 10, _gp.x));
+            _gp.z = Math.max(-ARENA_LIMIT   + 10, Math.min(ARENA_LIMIT   - 10, _gp.z));
+            _gp.group.rotation.y = Math.atan2(_pvx, _pvz);
+            _gp._gMoving = true;
+          } else {
+            _gp._gMoving = false;
           }
-        });
+          _gp.group.position.set(_gp.x, _gp.group.position.y, _gp.z);
+        }
 
         // Zombie lerp
         guestZombieMap.forEach(z => {
@@ -4190,11 +4231,11 @@
         });
 
         // Animations
-        players.forEach(p => {
+        players.forEach((p, pidx) => {
           if (!p.alive || !p.group || !p.lLeg) return;
           if (p._gMoving) {
             p.walkCycle = (p.walkCycle || 0) + dt * 9.6;
-            if (p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
+            if (pidx === 0 && p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY; // P1: host-reported dir; P2: self-predicted dir already set
             p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
             p.rLeg.rotation.x = -Math.sin(p.walkCycle) * 1.2;
             p.lArm.rotation.x = -Math.sin(p.walkCycle) * 1.2;
