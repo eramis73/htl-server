@@ -4164,20 +4164,56 @@
 
       // ── ONLINE GUEST: early return — render received state only ──────────
       if (gameMode === 'online-guest') {
+        // Disable shadows for mobile guest — massive GPU cost, not needed
+        if (_isMobileDevice && renderer.shadowMap.enabled) {
+          renderer.shadowMap.enabled = false;
+          scene.traverse(o => { if (o.isLight) { o.castShadow = false; } });
+        }
+
         if (now - _lastInputSend >= 50) _sendGuestInput();
         if (_guestLastState) { applyGuestState(_guestLastState); _guestLastState = null; }
 
-        // Player lerp toward host targets
-        players.forEach(p => {
-          if (!p.group) return;
-          if (p._targetX !== undefined) {
-            const dx = p._targetX - p.x, dz = p._targetZ - p.z, dist = Math.hypot(dx, dz);
-            if (dist > 30) { p.x = p._targetX; p.z = p._targetZ; }
-            else { p.x += dx * 0.32; p.z += dz * 0.32; }
-            p.group.position.set(p.x, 0, p.z);
-            p._gMoving = dist > 0.4;
+        // Host's player (P1): lerp toward host-reported position
+        const hp = players[0];
+        if (hp && hp.group && hp._targetX !== undefined) {
+          const dx = hp._targetX - hp.x, dz = hp._targetZ - hp.z, dist = Math.hypot(dx, dz);
+          if (dist > 30) { hp.x = hp._targetX; hp.z = hp._targetZ; }
+          else { hp.x += dx * 0.35; hp.z += dz * 0.35; }
+          hp.group.position.set(hp.x, hp.group.position.y, hp.z);
+          hp._gMoving = dist > 0.4;
+        }
+
+        // Guest's own player (P2): self-prediction — apply input immediately, reconcile from host
+        const gp = players[1];
+        if (gp && gp.group) {
+          if (gp._targetX !== undefined) {
+            const corDx = gp._targetX - gp.x, corDz = gp._targetZ - gp.z;
+            const corDist = Math.hypot(corDx, corDz);
+            if (corDist > 60) { gp.x = gp._targetX; gp.z = gp._targetZ; } // hard snap only if very far
+            else if (corDist > 8) { gp.x += corDx * 0.1; gp.z += corDz * 0.1; } // gentle drift correction
           }
-        });
+          if (gp.alive && !gp.sinking) {
+            let pvx = 0, pvz = 0;
+            if (keys['KeyW'] || keys['ArrowUp'])    pvz -= 1;
+            if (keys['KeyS'] || keys['ArrowDown'])  pvz += 1;
+            if (keys['KeyA'] || keys['ArrowLeft'])  pvx -= 1;
+            if (keys['KeyD'] || keys['ArrowRight']) pvx += 1;
+            pvx += touch.vx; pvz += touch.vz;
+            const pLen = Math.hypot(pvx, pvz);
+            if (pLen > 0) {
+              pvx /= pLen; pvz /= pLen;
+              gp.x += pvx * 75 * dt;
+              gp.z += pvz * 75 * dt;
+              gp.x = Math.max(-ARENA_LIMIT_X + 10, Math.min(ARENA_LIMIT_X - 10, gp.x));
+              gp.z = Math.max(-ARENA_LIMIT   + 10, Math.min(ARENA_LIMIT   - 10, gp.z));
+              gp.group.rotation.y = Math.atan2(pvx, pvz);
+              gp._gMoving = true;
+            } else {
+              gp._gMoving = false;
+            }
+          }
+          gp.group.position.set(gp.x, gp.group.position.y, gp.z);
+        }
 
         // Zombie lerp
         guestZombieMap.forEach(z => {
@@ -4185,16 +4221,16 @@
           if (z._tX !== undefined) {
             const zdx = z._tX - z.group.position.x, zdz = z._tZ - z.group.position.z, zDist = Math.hypot(zdx, zdz);
             if (zDist > 25) { z.group.position.set(z._tX, 0, z._tZ); }
-            else { z.group.position.x += zdx * 0.22; z.group.position.z += zdz * 0.22; z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.22; }
+            else { z.group.position.x += zdx * 0.25; z.group.position.z += zdz * 0.25; z.group.rotation.y += (z._tR - z.group.rotation.y) * 0.25; }
           }
         });
 
-        // Animations
+        // Walk animations
         players.forEach(p => {
           if (!p.alive || !p.group || !p.lLeg) return;
           if (p._gMoving) {
             p.walkCycle = (p.walkCycle || 0) + dt * 9.6;
-            if (p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
+            if (p === hp && p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY;
             p.lLeg.rotation.x =  Math.sin(p.walkCycle) * 1.2;
             p.rLeg.rotation.x = -Math.sin(p.walkCycle) * 1.2;
             p.lArm.rotation.x = -Math.sin(p.walkCycle) * 1.2;
