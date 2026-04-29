@@ -767,9 +767,9 @@
             <button class="btn" id="start-mp-btn" style="background:linear-gradient(135deg,#b71c1c,#7f0000);box-shadow:0 4px 0 #4a0000,0 0 30px rgba(183,28,28,0.5);">&#9876;&nbsp; MULTIPLAYER</button>
             <button class="btn" id="btn-online" style="background:linear-gradient(135deg,#1a4a1a,#0a2a0a);box-shadow:0 4px 0 #051505,0 0 30px rgba(74,222,128,0.35);">&#127760;&nbsp; ONLINE</button>
           </div>
-          <div style="display:flex;gap:10px;margin-top:4px;">
-            <button id="btn-music" onclick="_toggleMusic()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:20px;width:44px;height:44px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Music">🎵</button>
+          <div style="display:flex;gap:10px;margin-top:4px;align-items:center;">
             <button id="btn-sfx" onclick="_toggleSfx()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:20px;width:44px;height:44px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Sound FX">🔊</button>
+            <button id="btn-playpause" onclick="_togglePlayPause()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:20px;width:44px;height:44px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Music Play/Pause">▶</button>
           </div>
         </div>
 
@@ -830,6 +830,12 @@
     <button id="btn-fullscreen" title="Tam Ekran">⛶</button>
     <button id="btn-back" title="Back to Menu">←</button>
 
+    <!-- Game Over overlay -->
+    <div id="game-over-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:800;align-items:center;justify-content:center;flex-direction:column;pointer-events:none;">
+      <div style="font-family:'Orbitron',sans-serif;font-size:clamp(2rem,8vw,4.5rem);color:#ff1744;text-shadow:0 0 24px #ff1744,0 0 60px rgba(255,0,0,0.5);letter-spacing:6px;animation:hudPulse 0.9s ease-in-out infinite alternate;">GAME OVER</div>
+      <div style="color:rgba(255,255,255,0.5);margin-top:18px;font-family:monospace;font-size:1rem;letter-spacing:2px;">Restarting...</div>
+    </div>
+
     <div id="hud" style="display: none;">
       <div class="hud-item" id="hud-level">
         <span class="hud-icon">⚔️</span>
@@ -848,7 +854,6 @@
         <span class="hud-value" id="hud-shield-val">0</span>
       </div>
       <div class="hud-item" style="pointer-events:auto;flex-direction:row;gap:5px;padding:5px 7px;">
-        <button id="hud-btn-music" onclick="_toggleMusic()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:15px;width:26px;height:26px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="Music">🎵</button>
         <button id="hud-btn-sfx" onclick="_toggleSfx()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:15px;width:26px;height:26px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="SFX">🔊</button>
       </div>
       <div id="rtc-indicator" style="font-size:11px;font-family:monospace;font-weight:bold;opacity:0.75;pointer-events:none;align-self:center;margin-left:2px;"></div>
@@ -3126,7 +3131,7 @@
       resetPlayer(p);
     }
 
-    function playerDeathScatter(p) { playSfx('die');
+    function playerDeathScatter(p) { playSfx('die'); if (!isMP()) setTimeout(_showGameOver, 600);
       vibe([80, 40, 200]);
       createBloodSplatter(p.group.position.clone());
       const wp = new THREE.Vector3();
@@ -3575,6 +3580,8 @@
       mm.style.display = '';
       mm.style.pointerEvents = '';
       gameMode = 'single';
+      _hideGameOver();
+      if (_musicOn && _audCtx) _startMusic();
     }
 
     document.getElementById('btn-back').addEventListener('click', returnToMenu);
@@ -4036,7 +4043,18 @@
       _el('mp-phase-label').textContent = wLabel;
     }
 
+    function _showGameOver() {
+      const el = document.getElementById('game-over-screen');
+      if (el) { el.style.display = 'flex'; }
+    }
+    function _hideGameOver() {
+      const el = document.getElementById('game-over-screen');
+      if (el) { el.style.display = 'none'; }
+    }
+
     function startGame(lvl) {
+      _hideGameOver();
+      _stopMusic(); // music only on main menu
       updateCamera();
       setTimeout(updateCamera, 200);
       if ((gameMode === 'multi' || gameMode === 'online-host') && gameState._mpNextLevel) {
@@ -4433,17 +4451,26 @@
       _musicSrc.start();
     }
 
-    function _toggleMusic() {
+    function _stopMusic() {
+      if (_musicSrc) { try { _musicSrc.stop(); } catch(e){} _musicSrc = null; }
+    }
+
+    function _togglePlayPause() {
+      _initAudio();
       _musicOn = !_musicOn;
-      if (_musicOn) { if (_audCtx) _startMusic(); }
-      else { if (_musicSrc) { try { _musicSrc.stop(); } catch(e){} _musicSrc = null; } }
+      if (_musicOn) _startMusic(); else _stopMusic();
       _syncAudioButtons();
     }
 
-    function _toggleSfx() { _sfxOn = !_sfxOn; _syncAudioButtons(); }
+    function _toggleSfx() {
+      _initAudio();
+      _sfxOn = !_sfxOn;
+      _syncAudioButtons();
+    }
 
     function _syncAudioButtons() {
-      ['btn-music','hud-btn-music'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = _musicOn ? '🎵' : '🔇'; });
+      const pp = document.getElementById('btn-playpause');
+      if (pp) pp.textContent = _musicOn ? '⏸' : '▶';
       ['btn-sfx','hud-btn-sfx'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = _sfxOn ? '🔊' : '🔈'; });
     }
 
