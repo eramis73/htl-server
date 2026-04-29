@@ -4480,54 +4480,13 @@
       }
 
       if (type === 'boom') {
-        // Realistic explosion: shockwave crack → low body thump → rumble tail → debris scatter
-        const SR2 = _audCtx.sampleRate;
-        // 1. Initial shockwave — very short wide-band burst
-        const crackLen = Math.floor(0.06 * SR2);
-        const crackBuf = _audCtx.createBuffer(2, crackLen, SR2);
-        for (let ch=0; ch<2; ch++) {
-          const d = crackBuf.getChannelData(ch);
-          for (let i=0; i<crackLen; i++) d[i] = (Math.random()*2-1) * Math.exp(-i/crackLen*8);
-        }
-        const crackSrc = _audCtx.createBufferSource(); crackSrc.buffer = crackBuf;
-        const crackGain = _audCtx.createGain(); crackGain.gain.value = 1.1;
-        crackSrc.connect(crackGain); crackGain.connect(_audCtx.destination); crackSrc.start(now);
-        // 2. Deep sub thump — sine sweep 80Hz→18Hz
-        const subO = _audCtx.createOscillator(), subG = _audCtx.createGain();
-        subO.type = 'sine';
-        subO.frequency.setValueAtTime(85, now); subO.frequency.exponentialRampToValueAtTime(18, now+0.7);
-        subG.gain.setValueAtTime(0.0001, now); subG.gain.linearRampToValueAtTime(1.0, now+0.012);
-        subG.gain.exponentialRampToValueAtTime(0.001, now+0.75);
-        subO.connect(subG); subG.connect(_audCtx.destination); subO.start(now); subO.stop(now+0.8);
-        // 3. Mid-freq body punch — low-pass filtered noise, 0.9s
-        const bodyLen = Math.floor(0.9 * SR2);
-        const bodyBuf = _audCtx.createBuffer(2, bodyLen, SR2);
-        for (let ch=0; ch<2; ch++) {
-          const d = bodyBuf.getChannelData(ch);
-          for (let i=0; i<bodyLen; i++) d[i] = (Math.random()*2-1) * Math.exp(-i/bodyLen*4.5);
-        }
-        const bodySrc = _audCtx.createBufferSource(); bodySrc.buffer = bodyBuf;
-        const bodyLP = _audCtx.createBiquadFilter(); bodyLP.type='lowpass'; bodyLP.frequency.value=520;
-        const bodyG = _audCtx.createGain(); bodyG.gain.value = 0.85;
-        bodySrc.connect(bodyLP); bodyLP.connect(bodyG); bodyG.connect(_sfxGainNode); bodySrc.start(now);
-        // 4. High shrapnel — highpass noise, short
-        const shrapLen = Math.floor(0.22 * SR2);
-        const shrapBuf = _audCtx.createBuffer(1, shrapLen, SR2);
-        const shrapD = shrapBuf.getChannelData(0);
-        for (let i=0; i<shrapLen; i++) shrapD[i] = (Math.random()*2-1) * Math.exp(-i/shrapLen*7);
-        const shrapSrc = _audCtx.createBufferSource(); shrapSrc.buffer = shrapBuf;
-        const shrapHP = _audCtx.createBiquadFilter(); shrapHP.type='highpass'; shrapHP.frequency.value=1800;
-        const shrapG = _audCtx.createGain(); shrapG.gain.value = 0.35;
-        shrapSrc.connect(shrapHP); shrapHP.connect(shrapG); shrapG.connect(_sfxGainNode); shrapSrc.start(now+0.02);
-        // 5. Distant rumble tail — very low, long
-        const rumbleLen = Math.floor(1.4 * SR2);
-        const rumbleBuf = _audCtx.createBuffer(1, rumbleLen, SR2);
-        const rumbleD = rumbleBuf.getChannelData(0);
-        for (let i=0; i<rumbleLen; i++) rumbleD[i] = (Math.random()*2-1) * Math.exp(-i/rumbleLen*3.5);
-        const rumbleSrc = _audCtx.createBufferSource(); rumbleSrc.buffer = rumbleBuf;
-        const rumbleLP = _audCtx.createBiquadFilter(); rumbleLP.type='lowpass'; rumbleLP.frequency.value=180;
-        const rumbleG = _audCtx.createGain(); rumbleG.gain.value = 0.45;
-        rumbleSrc.connect(rumbleLP); rumbleLP.connect(rumbleG); rumbleG.connect(_sfxGainNode); rumbleSrc.start(now+0.05);
+        // Explosion: shockwave crack + sub thump + body rumble + shrapnel + tail
+        osc(75,  now,        0.65, 0.95, 'sine', 22);   // sub thump sweep
+        osc(140, now,        0.12, 0.55, 'sine', 45);   // punch attack layer
+        noise(0.05, 0.9,  null, 1000, 1);               // initial crack burst (broadband)
+        noise(0.85, 0.78, 480,  null,  5);              // low body (lowpass rumble)
+        noise(0.22, 0.38, null, 1600,  4);              // shrapnel (highpass)
+        noise(1.2,  0.42, 220,  null,  3);              // distant rumble tail
 
       } else if (type === 'bone') {
         // Bone crack: dry sharp impact + crunch noise
