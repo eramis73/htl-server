@@ -1605,6 +1605,7 @@
       z._cannonKilled = true;
       z.active = false;
       z.group.visible = false;
+      playSfx('bone');
 
       if (cannonScatters.length >= 8) {
         const old = cannonScatters.shift();
@@ -4225,58 +4226,138 @@
     }
 
     function _buildMusicBuffer() {
-      const SR = _audCtx.sampleRate, BPM = 122;
-      const beat = 60 / BPM, bars = 4;
+      const SR = _audCtx.sampleRate, BPM = 128;
+      const beat = 60 / BPM, bars = 8;
       const N = Math.ceil(bars * 4 * beat * SR);
-      const buf = _audCtx.createBuffer(1, N, SR);
-      const d = buf.getChannelData(0);
-      const b = beat, e = beat / 2;
+      const buf = _audCtx.createBuffer(2, N, SR);
+      const dL = buf.getChannelData(0), dR = buf.getChannelData(1);
+      const b = beat, e = beat / 2, s = beat / 4;
 
-      function addOsc(freq, t0, dur, amp, wave) {
-        const i0 = Math.floor(t0 * SR), iN = Math.min(N, i0 + Math.floor(dur * SR));
-        for (let i = i0; i < iN; i++) {
-          const t = (i - i0) / SR;
-          const env = Math.min(1, t / 0.008) * Math.exp(-t * 3.5 / dur);
-          const ph = 2 * Math.PI * freq * t;
-          const v = wave === 'sq' ? Math.sign(Math.sin(ph)) : wave === 'saw' ? (2 * ((freq * t) % 1) - 1) : Math.sin(ph);
-          d[i] = Math.max(-1, Math.min(1, d[i] + v * amp * env));
-        }
-      }
+      function writeL(i, v) { dL[i] = Math.max(-1, Math.min(1, dL[i] + v)); }
+      function writeR(i, v) { dR[i] = Math.max(-1, Math.min(1, dR[i] + v)); }
+      function writeLR(i, v, panL, panR) { writeL(i, v * (panL||1)); writeR(i, v * (panR||1)); }
+
       function kick(t0) {
-        const i0 = Math.floor(t0 * SR), len = Math.floor(0.2 * SR);
+        const i0 = Math.floor(t0 * SR), len = Math.floor(0.5 * SR);
         for (let i = 0; i < len && i0+i < N; i++) {
-          const t = i / SR, f = 75 * Math.exp(-t * 22) + 38, env = Math.exp(-t * 16);
-          d[i0+i] = Math.max(-1, Math.min(1, d[i0+i] + Math.sin(2*Math.PI*f*t) * env * 0.72));
+          const t = i / SR;
+          const click = i < SR * 0.005 ? (Math.random()*2-1) * 0.25 : 0;
+          const f = 160 * Math.exp(-t * 38) + 42;
+          const body = Math.sin(2 * Math.PI * f * t) * Math.exp(-t * 8);
+          writeLR(i0+i, (body * 0.85 + click) * 0.78);
         }
       }
       function snare(t0) {
-        const i0 = Math.floor(t0 * SR), len = Math.floor(0.1 * SR);
-        for (let i = 0; i < len && i0+i < N; i++)
-          d[i0+i] = Math.max(-1, Math.min(1, d[i0+i] + (Math.random()*2-1) * Math.exp(-i/len*6) * 0.32));
+        const i0 = Math.floor(t0 * SR), len = Math.floor(0.22 * SR);
+        for (let i = 0; i < len && i0+i < N; i++) {
+          const t = i / SR;
+          const noise = (Math.random()*2-1) * Math.exp(-t * 20) * 0.38;
+          const body  = Math.sin(2*Math.PI*195*t) * Math.exp(-t * 22) * 0.22;
+          const crack = Math.sin(2*Math.PI*320*t) * Math.exp(-t * 60) * 0.18;
+          writeLR(i0+i, (noise + body + crack) * 0.65);
+        }
       }
-      function hihat(t0, amp) {
-        const i0 = Math.floor(t0 * SR), len = Math.floor(0.035 * SR);
-        for (let i = 0; i < len && i0+i < N; i++)
-          d[i0+i] = Math.max(-1, Math.min(1, d[i0+i] + (Math.random()*2-1) * Math.exp(-i/len*14) * amp));
+      function hihat(t0, amp, open) {
+        const i0 = Math.floor(t0 * SR), len = Math.floor((open ? 0.14 : 0.022) * SR);
+        for (let i = 0; i < len && i0+i < N; i++) {
+          const t = i / SR;
+          const v = (Math.random()*2-1) * Math.exp(-t * (open ? 14 : 55)) * amp * 0.22;
+          writeL(i0+i, v * 0.7); writeR(i0+i, v * 1.0);
+        }
       }
 
-      // Am pentatonic bass: A2=110, C3=130.81, D3=146.83, E3=164.81, G3=196
-      const bass = [110,0,130.81,146.83, 110,0,164.81,130.81, 110,0,130.81,196, 146.83,110,164.81,0];
-      // Lead melody: A4=440, C5=523.25, E4=329.63, B4=493.88, G4=392, D5=587.33
-      const mel  = [440,0,523.25,0, 493.88,440,392,329.63, 440,0,523.25,493.88, 440,392,329.63,0];
+      // Chord pad — layered detuned sines per note, slow attack, wide stereo
+      function pad(freq, t0, dur, amp) {
+        const i0 = Math.floor(t0 * SR), iN = Math.min(N, i0 + Math.floor(dur * SR));
+        const atk = Math.floor(0.18 * SR);
+        const harmonics = [1, 2, 3, 4], hAmps = [1, 0.38, 0.18, 0.08];
+        for (let i = i0; i < iN; i++) {
+          const fi = i - i0, t = fi / SR;
+          const env = Math.min(1, fi / atk) * Math.exp(-t * 0.6 / dur) * amp * 0.09;
+          let vL = 0, vR = 0;
+          for (let h = 0; h < harmonics.length; h++) {
+            const det = 1 + 0.004 * h;
+            vL += Math.sin(2*Math.PI * freq * harmonics[h] / det * t) * hAmps[h];
+            vR += Math.sin(2*Math.PI * freq * harmonics[h] * det * t) * hAmps[h];
+          }
+          writeL(i, vL * env); writeR(i, vR * env);
+        }
+      }
+
+      // Bass — sawtooth body + sub sine, tight envelope
+      function bass(freq, t0, dur, amp) {
+        const i0 = Math.floor(t0 * SR), iN = Math.min(N, i0 + Math.floor(dur * SR));
+        for (let i = i0; i < iN; i++) {
+          const t = (i - i0) / SR;
+          const env = Math.min(1, t / 0.009) * Math.exp(-t * 2.2 / dur);
+          const saw = (2 * ((freq * t) % 1) - 1) * 0.48;
+          const sub = Math.sin(2*Math.PI * freq * 0.5 * t) * 0.62;
+          writeLR(i, (saw + sub) * amp * env);
+        }
+      }
+
+      // Arp — triangle + square blend, short, panned slightly right
+      function arp(freq, t0, dur, amp) {
+        const i0 = Math.floor(t0 * SR), iN = Math.min(N, i0 + Math.floor(dur * SR));
+        for (let i = i0; i < iN; i++) {
+          const t = (i - i0) / SR;
+          const env = Math.min(1, t / 0.004) * Math.exp(-t * 7 / dur);
+          const tri = (Math.abs(2*(freq*t%1)-1)*2-1);
+          const sq  = Math.sign(Math.sin(2*Math.PI*freq*t));
+          const v = (tri*0.55 + sq*0.45) * amp * env;
+          writeL(i, v * 0.82); writeR(i, v * 1.18);
+        }
+      }
+
+      // Am - F - C - G chord progression
+      const chords = [
+        [220, 261.63, 329.63],  // Am: A3 C4 E4
+        [174.61, 220, 261.63],  // F: F3 A3 C4
+        [261.63, 329.63, 392],  // C: C4 E4 G4
+        [196, 246.94, 293.66],  // G: G3 B3 D4
+      ];
+      const bassRoots = [110, 87.31, 130.81, 98]; // A2 F2 C3 G2
+      const arpSeqs = [
+        [220,261.63,329.63,440,329.63,261.63,329.63,220],
+        [174.61,220,261.63,349.23,261.63,220,261.63,174.61],
+        [261.63,329.63,392,523.25,392,329.63,392,261.63],
+        [196,246.94,293.66,392,293.66,246.94,293.66,196],
+      ];
 
       for (let bar = 0; bar < bars; bar++) {
         const bt = bar * 4 * b;
-        kick(bt); kick(bt+2*b); snare(bt+b); snare(bt+3*b);
-        for (let h = 0; h < 8; h++) hihat(bt + h*e, h%2===0 ? 0.14 : 0.07);
-        for (let i = 0; i < 16; i++) {
-          if (bass[i]) { addOsc(bass[i], bt+i*e, e*0.88, 0.2, 'saw'); addOsc(bass[i]/2, bt+i*e, e*0.82, 0.1, 'sin'); }
-          if (bar >= 1 && mel[i]) addOsc(mel[i], bt+i*e, e*0.78, 0.11, 'sq');
+        const ci = bar % 4;
+
+        kick(bt); kick(bt + 2*b);
+        snare(bt + b); snare(bt + 3*b);
+        if (bar >= 2) kick(bt + 3.5*b);
+        for (let h = 0; h < 8; h++) hihat(bt + h*e, h%2===0 ? 1.3 : 0.7, h === 4);
+
+        // Pad: whole bar per chord note
+        chords[ci].forEach(f => pad(f, bt, 4*b, 1));
+
+        // Bass: groove pattern
+        const bn = bassRoots[ci];
+        const bassPattern = [
+          [bn,e],[bn,s],[bn*1.5,s],[bn,e],[bn,e],[bn*2,s],[bn*2,s],[bn,e]
+        ];
+        let bOff = 0;
+        bassPattern.forEach(([f, dur]) => { bass(f, bt+bOff, dur*0.88, 0.24); bOff += dur; });
+
+        // Arp from bar 2 onward, 16th note subdivisions from bar 5
+        if (bar >= 1) {
+          const ap = arpSeqs[ci];
+          for (let i = 0; i < 8; i++) {
+            arp(ap[i], bt + i*e, e*0.82, 0.1);
+            if (bar >= 4) arp(ap[(i+1)%8], bt + i*e + s, s*0.75, 0.065);
+          }
         }
       }
-      // Normalize
-      let mx = 0; for (let i = 0; i < N; i++) mx = Math.max(mx, Math.abs(d[i]));
-      if (mx > 0.88) { const sc = 0.88/mx; for (let i = 0; i < N; i++) d[i] *= sc; }
+
+      // Stereo normalize
+      let mx = 0;
+      for (let i = 0; i < N; i++) mx = Math.max(mx, Math.abs(dL[i]), Math.abs(dR[i]));
+      if (mx > 0.88) { const sc = 0.88/mx; for (let i = 0; i < N; i++) { dL[i]*=sc; dR[i]*=sc; } }
       return buf;
     }
 
@@ -4305,51 +4386,103 @@
 
     function playSfx(type) {
       if (!_audCtx || !_sfxOn) return;
-      const now = _audCtx.currentTime;
-      function osc(freq, t, dur, amp, wave) {
+      const SR = _audCtx.sampleRate, now = _audCtx.currentTime;
+
+      function osc(freq, t, dur, amp, wave, freqEnd) {
         const o = _audCtx.createOscillator(), g = _audCtx.createGain();
-        o.type = wave || 'square'; o.frequency.value = freq;
-        g.gain.setValueAtTime(amp, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-        o.connect(g); g.connect(_sfxGainNode); o.start(t); o.stop(t + dur + 0.05);
+        o.type = wave || 'sine'; o.frequency.setValueAtTime(freq, t);
+        if (freqEnd) o.frequency.exponentialRampToValueAtTime(freqEnd, t + dur);
+        g.gain.setValueAtTime(amp, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        o.connect(g); g.connect(_sfxGainNode); o.start(t); o.stop(t + dur + 0.02);
       }
-      if (type === 'zap') {
-        for (let i = 0; i < 3; i++) {
-          const o = _audCtx.createOscillator(), g = _audCtx.createGain();
-          o.type = 'sawtooth'; o.frequency.setValueAtTime(900+i*250, now+i*0.05);
-          o.frequency.exponentialRampToValueAtTime(180, now+i*0.05+0.18);
-          g.gain.setValueAtTime(0.28, now+i*0.05); g.gain.exponentialRampToValueAtTime(0.001, now+i*0.05+0.18);
-          o.connect(g); g.connect(_sfxGainNode); o.start(now+i*0.05); o.stop(now+i*0.05+0.22);
+
+      function noise(dur, amp, lpFreq, hpFreq, decayRate) {
+        const len = Math.floor(dur * SR);
+        const nb = _audCtx.createBuffer(1, len, SR);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < len; i++) nd[i] = (Math.random()*2-1) * Math.exp(-i / len * (decayRate||4));
+        const ns = _audCtx.createBufferSource();
+        ns.buffer = nb;
+        let last = ns;
+        if (lpFreq) {
+          const f = _audCtx.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = lpFreq;
+          last.connect(f); last = f;
         }
-      } else if (type === 'boom') {
-        const nb = _audCtx.createBuffer(1, Math.floor(0.55*SR), SR);
-        const nd = nb.getChannelData(0); const SR = _audCtx.sampleRate;
-        for (let i = 0; i < nd.length; i++) nd[i] = (Math.random()*2-1) * Math.exp(-i/nd.length*7);
-        const ns = _audCtx.createBufferSource(), f = _audCtx.createBiquadFilter(), g = _audCtx.createGain();
-        f.type = 'lowpass'; f.frequency.value = 380; g.gain.value = 0.55;
-        ns.buffer = nb; ns.connect(f); f.connect(g); g.connect(_sfxGainNode); ns.start(now);
-        osc(75, now, 0.35, 0.5, 'sine');
-        const o2 = _audCtx.createOscillator(), g2 = _audCtx.createGain();
-        o2.frequency.setValueAtTime(80, now); o2.frequency.exponentialRampToValueAtTime(28, now+0.3);
-        g2.gain.setValueAtTime(0.45, now); g2.gain.exponentialRampToValueAtTime(0.001, now+0.35);
-        o2.connect(g2); g2.connect(_sfxGainNode); o2.start(now); o2.stop(now+0.4);
+        if (hpFreq) {
+          const f = _audCtx.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hpFreq;
+          last.connect(f); last = f;
+        }
+        const g = _audCtx.createGain(); g.gain.value = amp;
+        last.connect(g); g.connect(_sfxGainNode); ns.start(now);
+      }
+
+      if (type === 'boom') {
+        // Big explosion: initial crack + deep rumble + sub thud + room tail
+        noise(0.04, 0.9, null, 1200, 1);         // initial crack (highpass transient)
+        noise(1.1,  0.7, 420,  null, 6);          // low rumble body
+        noise(0.6,  0.45, 200, null, 3);          // sub rumble
+        osc(68, now, 0.55, 0.7, 'sine', 22);      // sub bass sweep
+        osc(95, now, 0.3,  0.4, 'sine', 35);      // punch layer
+        osc(140, now, 0.08, 0.3, 'sine');          // attack transient
+
+      } else if (type === 'bone') {
+        // Bone crack: dry sharp impact + crunch noise
+        noise(0.07, 0.55, null, 2200, 2);          // high crack burst
+        noise(0.12, 0.4,  1400, 400, 5);           // mid crunch
+        osc(95, now, 0.06, 0.35, 'sine');           // low thud body
+
+      } else if (type === 'whoosh') {
+        // Arrow whoosh: filtered noise sweep
+        const len = Math.floor(0.22 * SR);
+        const nb = _audCtx.createBuffer(1, len, SR);
+        const nd = nb.getChannelData(0);
+        for (let i = 0; i < len; i++) nd[i] = (Math.random()*2-1);
+        const ns = _audCtx.createBufferSource(); ns.buffer = nb;
+        const hp = _audCtx.createBiquadFilter(); hp.type = 'highpass';
+        hp.frequency.setValueAtTime(1800, now); hp.frequency.exponentialRampToValueAtTime(600, now + 0.22);
+        const g = _audCtx.createGain();
+        g.gain.setValueAtTime(0.0001, now); g.gain.linearRampToValueAtTime(0.32, now + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+        ns.connect(hp); hp.connect(g); g.connect(_sfxGainNode); ns.start(now);
+
+      } else if (type === 'zap') {
+        // Electric wire zap: sharp discharge + resonant zing
+        for (let i = 0; i < 2; i++) {
+          osc(1400 - i*200, now+i*0.04, 0.14, 0.28, 'sawtooth', 180);
+        }
+        noise(0.12, 0.22, null, 800, 3);
+        osc(520, now, 0.08, 0.18, 'square', 80);
+
       } else if (type === 'die') {
-        const o = _audCtx.createOscillator(), g = _audCtx.createGain();
-        o.type = 'square'; o.frequency.setValueAtTime(440, now); o.frequency.exponentialRampToValueAtTime(55, now+0.55);
-        g.gain.setValueAtTime(0.3, now); g.gain.exponentialRampToValueAtTime(0.001, now+0.55);
-        o.connect(g); g.connect(_sfxGainNode); o.start(now); o.stop(now+0.6);
+        // Player death: descending thud + scatter noise
+        osc(380, now, 0.5, 0.38, 'sine', 48);
+        noise(0.3, 0.28, 600, null, 5);
+        osc(220, now+0.05, 0.3, 0.2, 'sine', 55);
+
       } else if (type === 'win') {
-        [261.63, 329.63, 392, 523.25].forEach((f, i) => osc(f, now+i*0.13, 0.3, 0.22, 'square'));
+        // Victory fanfare: ascending chord arpeggiated
+        [[261.63,0],[329.63,0.1],[392,0.2],[523.25,0.3],[659.26,0.42]].forEach(([f, dt]) => {
+          osc(f, now+dt, 0.45, 0.22, 'triangle');
+          osc(f*2, now+dt, 0.22, 0.08, 'sine');
+        });
+
       } else if (type === 'pickup') {
-        [880, 1108.73, 1318.51].forEach((f, i) => osc(f, now+i*0.07, 0.22, 0.18, 'sine'));
+        // Mystery pickup: magical shimmer
+        [880, 1108.73, 1318.51, 1760].forEach((f, i) => {
+          osc(f, now + i*0.06, 0.28, 0.16, 'sine');
+          osc(f*1.5, now + i*0.06 + 0.03, 0.14, 0.07, 'triangle');
+        });
+
       } else if (type === 'wire') {
-        osc(260, now, 0.09, 0.14, 'sawtooth');
-      } else if (type === 'cannon') {
-        const o = _audCtx.createOscillator(), g = _audCtx.createGain();
-        o.type = 'sawtooth'; o.frequency.setValueAtTime(320, now); o.frequency.exponentialRampToValueAtTime(75, now+0.32);
-        g.gain.setValueAtTime(0.28, now); g.gain.exponentialRampToValueAtTime(0.001, now+0.32);
-        o.connect(g); g.connect(_sfxGainNode); o.start(now); o.stop(now+0.36);
+        // Wire lay: short electric pulse
+        osc(380, now, 0.07, 0.16, 'sawtooth', 120);
+        noise(0.06, 0.12, null, 900, 4);
+
       } else if (type === 'shield') {
-        osc(660, now, 0.08, 0.2, 'sine'); osc(440, now+0.06, 0.12, 0.15, 'sine');
+        // Shield: resonant metallic ping
+        osc(880, now, 0.18, 0.26, 'sine');
+        osc(1320, now, 0.12, 0.14, 'sine');
+        osc(660, now+0.08, 0.2, 0.18, 'triangle', 440);
       }
     }
 
@@ -5288,6 +5421,7 @@
                 pos.needsUpdate = true;
               }
               c.state = 'fired';
+              playSfx('whoosh');
               c.ball.visible = true;
               c.ballX = c.wx + c.dx * 16;
               c.ballZ = c.wz + c.dz * 16;
