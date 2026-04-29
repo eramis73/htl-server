@@ -3866,7 +3866,8 @@
 
           if (i === 1 && gameMode === 'online-guest') {
             p.alive = !!pd[2]; p.sinking = !!pd[3]; p.isDashing = !!pd[4];
-            // Sync isDrawingWire so the mesh update below knows whether to show it
+            // Sync isDrawingWire so the mesh update below knows whether to show it,
+            // but we'll protect local visibility in the logic below.
             p.isDrawingWire = !!pd[6]; 
             const snapDist = Math.hypot(pd[0] - p.x, pd[1] - p.z);
             if (snapDist > 100) { p.x = pd[0]; p.z = pd[1]; if (p.group) p.group.position.set(p.x, 0, p.z); }
@@ -3893,19 +3894,23 @@
               if (wPts.length !== prevLen) {
                 const vPts = wPts.map(pt => new THREE.Vector3(pt[0], 0, pt[1]));
                 const curve = new THREE.CatmullRomCurve3(vPts);
-                p.wireMesh.geometry.dispose();
+                if (p.wireMesh.geometry) p.wireMesh.geometry.dispose();
                 p.wireMesh.geometry = new THREE.TubeGeometry(curve, Math.max(wPts.length * 2, 8), 2.5, 6, false);
-                p.wireOuterMesh.geometry.dispose();
+                if (p.wireOuterMesh.geometry) p.wireOuterMesh.geometry.dispose();
                 p.wireOuterMesh.geometry = new THREE.TubeGeometry(curve, Math.max(wPts.length * 2, 8), 3.2, 6, false);
                 p._gWLen = wPts.length;
                 if (p.startMarker) { p.startMarker.position.set(wPts[0][0], 3.5, wPts[0][1]); p.startMarker.visible = true; }
               }
             }
           } else {
-            if (p.wireMesh) p.wireMesh.visible = false;
-            if (p.wireOuterMesh) p.wireOuterMesh.visible = false;
-            if (p.startMarker) p.startMarker.visible = false;
-            p._gWLen = 0;
+            // Protect local guest wire visibility from being hidden by host state
+            const isLocalGuest = (i === 1 && gameMode === 'online-guest');
+            if (!isLocalGuest) {
+              if (p.wireMesh) p.wireMesh.visible = false;
+              if (p.wireOuterMesh) p.wireOuterMesh.visible = false;
+              if (p.startMarker) p.startMarker.visible = false;
+              p._gWLen = 0;
+            }
           }
         }
       }
@@ -4976,10 +4981,12 @@
               _gp.wirePoints = [{ x: _gp.x, z: _gp.z }];
               _gp.startMarker.position.set(_gp.x, 3.5, _gp.z);
               _gp.startMarker.visible = true;
+              if (_gp.wireMesh) _gp.wireMesh.visible = true;
+              if (_gp.wireOuterMesh) _gp.wireOuterMesh.visible = true;
             } else {
               _gp.wirePoints = []; _gp.startMarker.visible = false;
-              if (_gp.wireMesh) { _gp.wireMesh.geometry.dispose(); _gp.wireMesh.geometry = new THREE.BufferGeometry(); }
-              if (_gp.wireOuterMesh) { _gp.wireOuterMesh.geometry.dispose(); _gp.wireOuterMesh.geometry = new THREE.BufferGeometry(); }
+              if (_gp.wireMesh) { _gp.wireMesh.visible = false; _gp.wireMesh.geometry.dispose(); _gp.wireMesh.geometry = new THREE.BufferGeometry(); }
+              if (_gp.wireOuterMesh) { _gp.wireOuterMesh.visible = false; _gp.wireOuterMesh.geometry.dispose(); _gp.wireOuterMesh.geometry = new THREE.BufferGeometry(); }
             }
           }
 
@@ -5016,7 +5023,17 @@
 
         // Animations
         players.forEach((p, pidx) => {
-          if (!p.alive || !p.group || !p.lLeg) return;
+          if (!p.alive || !p.group || !p.lLeg) {
+             // If local player was alive but now is dead (from host sync), trigger local game over
+             if (pidx === 1 && p._lastAliveStatus === true && p.alive === false) {
+               playerDeathScatter(p);
+               triggerGameOver();
+             }
+             p._lastAliveStatus = p.alive;
+             return;
+          }
+          p._lastAliveStatus = p.alive;
+
           if (p._gMoving) {
             p.walkCycle = (p.walkCycle || 0) + dt * 9.6;
             if (pidx === 0 && p._gFaceY !== undefined) p.group.rotation.y = p._gFaceY; // P1: host-reported dir; P2: self-predicted dir already set
@@ -5029,6 +5046,17 @@
             p.lLeg.rotation.x = 0; p.rLeg.rotation.x = 0; p.lArm.rotation.x = 0; p.rArm.rotation.x = 0; p.group.position.y = 0;
           }
         });
+
+        // Local collision check for Guest (P2) to provide instant feedback
+        if (_gp && _gp.alive && !_gp.sinking) {
+          guestZombieMap.forEach(z => {
+            if (z.active && Math.hypot(_gp.x - z.group.position.x, _gp.z - z.group.position.z) < 8.5) {
+              playerDeathScatter(_gp);
+              _gp.alive = false; _gp.group.visible = false;
+              triggerGameOver();
+            }
+          });
+        }
 
         // Camera
         if (isMobile) {
