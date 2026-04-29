@@ -1392,7 +1392,8 @@
           const _winName = bomb.owner.teamColor === 'blue' ? playerNames[0] : playerNames[1];
           showFloatingText(pos, _winName + ' WINS!', bomb.owner.teamColor === 'blue' ? '#42a5f5' : '#ef5350');
           _el('mp-phase-label').textContent = _winName + ' WINS!';
-          triggerGameOver();
+          mpDeclareWinner(p); // handles both multi result panel and online match_result message
+          gameState.transitioning = true; // prevent further events (mpDeclareWinner doesn't set this)
         });
       }
     }
@@ -3906,7 +3907,14 @@
           const wPts = pd[7];
           if (pd[8]  !== undefined) p.score          = pd[8];
           if (pd[9]  !== undefined) p.zombiesLeft     = pd[9];
-          if (pd[10] !== undefined) p.inBombPhase     = !!pd[10];
+          if (pd[10] !== undefined) {
+            const wasPhase = p.inBombPhase;
+            p.inBombPhase = !!pd[10];
+            if (!wasPhase && p.inBombPhase) {
+              const label = i === 0 ? 'HOST' : 'GUEST';
+              _el('mp-phase-label').textContent = label + ' BOMB PHASE!';
+            }
+          }
           if (pd[11] !== undefined) p.activeBombCount = pd[11];
           if (pd[12] !== undefined) p.shields         = pd[12];
 
@@ -5440,6 +5448,31 @@
               } else {
                 // Online P2: isDrawingWire is synced directly from guest intent
                 if (onlineP2Input.fi !== p.isDrawingWire) {
+                  // fi just went false → guest detected polygon close; do a final kill pass before clearing
+                  if (!onlineP2Input.fi && p.isDrawingWire && p.wirePoints.length > 10) {
+                    const poly = [...p.wirePoints, { x: p.x, z: p.z }];
+                    let deadZs = 0;
+                    gameState.entities.zombies.forEach(z => {
+                      if (!z.active || z.shocked) return;
+                      if (!isPointInPolygon({ x: z.group.position.x, z: z.group.position.z }, poly)) return;
+                      z.hp = 0; z.shocked = true; z.shockTimer = 1.2; z.shockTimerMax = 1.2; z.smokeTimer = 0;
+                      applyShockVisuals(z); applyRedGlow(z); deadZs++;
+                      if (z.teamIdx >= 0) {
+                        const owner = players[z.teamIdx];
+                        owner.zombiesLeft = Math.max(0, owner.zombiesLeft - 1);
+                        if (owner.zombiesLeft === 0 && !owner.inBombPhase) {
+                          owner.inBombPhase = true;
+                          _el('mp-phase-label').textContent = playerNames[z.teamIdx] + ' BOMB PHASE!';
+                        }
+                      }
+                    });
+                    if (deadZs > 0) {
+                      p.combo = (p.combo || 0) + 1; p.comboTime = 3.5;
+                      gameState.kills += deadZs; p.score += deadZs * 25 * p.combo;
+                      if (isMP()) updateMpHud();
+                      playSfx('zap'); playSfx('scream');
+                    }
+                  }
                   p.isDrawingWire = onlineP2Input.fi;
                   if (p.isDrawingWire) {
                     p.wirePoints = [{ x: p.x, z: p.z }];
