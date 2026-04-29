@@ -4186,12 +4186,6 @@
         const grp = new THREE.Group();
         grp.position.set(px, 0, pz);
 
-        // Outer ring
-        const ringMat = new THREE.MeshStandardMaterial({ color: 0xcc44ff, emissive: 0xaa00ff, emissiveIntensity: 2.0, side: THREE.DoubleSide });
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(22, 3.5, 16, 48), ringMat);
-        ring.rotation.x = Math.PI / 2; ring.position.y = 22;
-        grp.add(ring);
-
         // Inner glow disc
         const discMat = new THREE.MeshBasicMaterial({ color: 0xee88ff, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false });
         const disc = new THREE.Mesh(new THREE.CircleGeometry(19, 48), discMat);
@@ -4224,7 +4218,7 @@
         lbl.position.set(0, 52, 0); grp.add(lbl);
 
         worldGroup.add(grp);
-        _vjPortal = { grp, ring, disc, groundRing, light, lbl, x: px, z: pz, entered: false };
+        _vjPortal = { grp, disc, groundRing, light, lbl, x: px, z: pz, entered: false };
       })();
     }
 
@@ -4624,7 +4618,6 @@
 
       // ── VIBE JAM PORTAL: animate + collision (all modes) ─────────────────
       if (_vjPortal && !_vjPortal.entered) {
-        _vjPortal.ring.rotation.z += dt * 0.8;
         _vjPortal.groundRing.rotation.z -= dt * 0.5;
         const pulse = 0.15 + Math.sin(time * 3) * 0.08;
         _vjPortal.disc.material.opacity = pulse;
