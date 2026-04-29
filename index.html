@@ -6204,6 +6204,10 @@
       renderer.render(scene, camera);
     }
     animate();
+
+    // Expose onclick-callable functions to global scope (module scripts are not global)
+    window._toggleSfx = _toggleSfx;
+    window._togglePlayPause = _togglePlayPause;
   </script>
   </div> <!-- #game-wrap -->
 </body>
