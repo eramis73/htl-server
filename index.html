@@ -3677,6 +3677,13 @@
         gameMode = 'online-guest';
         _hideOnlinePanel();
         launchLevel(msg.lvl);
+        // Remove all locally-spawned zombies (startZombies etc.) — guest only shows host-synced ones
+        if (gameState.entities && gameState.entities.zombies) {
+          gameState.entities.zombies.forEach(z => { z.active = false; if (z.group) z.group.visible = false; });
+          gameState.entities.zombies = [];
+        }
+        gameState.zombiesSpawned = 0;
+        guestZombieMap.clear();
       } else if (msg.t === 's') {
         _guestLastState = msg;
       } else if (msg.t === 'input') {
@@ -3858,6 +3865,12 @@
         }
         guestZombieMap.forEach((z, id) => {
           if (!seenIds.has(id)) { z.active = false; z.group.visible = false; guestZombieMap.delete(id); }
+        });
+        // Hide any leftover locally-spawned zombies not tracked by network
+        gameState.entities.zombies.forEach(z => {
+          if (z.active && (!z._netId || !seenIds.has(z._netId))) {
+            z.active = false; if (z.group) z.group.visible = false;
+          }
         });
       }
 
