@@ -4146,7 +4146,57 @@
       for (let _i = 0; _i < wcCount; _i++) spawnWallCannon();
 
       updateHUD();
+
+      // ── VIBE JAM PORTAL ──────────────────────────────────────────────────
+      if (_vjPortal) { worldGroup.remove(_vjPortal.grp); _vjPortal = null; }
+      (function() {
+        const px = 0, pz = ARENA_LIMIT - 22;
+        const grp = new THREE.Group();
+        grp.position.set(px, 0, pz);
+
+        // Outer ring
+        const ringMat = new THREE.MeshStandardMaterial({ color: 0xcc44ff, emissive: 0xaa00ff, emissiveIntensity: 2.0, side: THREE.DoubleSide });
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(22, 3.5, 16, 48), ringMat);
+        ring.rotation.x = Math.PI / 2; ring.position.y = 22;
+        grp.add(ring);
+
+        // Inner glow disc
+        const discMat = new THREE.MeshBasicMaterial({ color: 0xee88ff, transparent: true, opacity: 0.18, side: THREE.DoubleSide, depthWrite: false });
+        const disc = new THREE.Mesh(new THREE.CircleGeometry(19, 48), discMat);
+        disc.rotation.x = Math.PI / 2; disc.position.y = 22;
+        grp.add(disc);
+
+        // Ground ring glow
+        const groundMat = new THREE.MeshBasicMaterial({ color: 0xcc44ff, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false });
+        const groundRing = new THREE.Mesh(new THREE.RingGeometry(18, 26, 48), groundMat);
+        groundRing.rotation.x = -Math.PI / 2; groundRing.position.y = 0.5;
+        grp.add(groundRing);
+
+        // Point light
+        const light = new THREE.PointLight(0xcc44ff, 600, 180);
+        light.position.set(0, 22, 0); grp.add(light);
+
+        // Label (canvas texture)
+        const cv = document.createElement('canvas'); cv.width = 512; cv.height = 96;
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = 'rgba(0,0,0,0)';
+        ctx.fillRect(0, 0, 512, 96);
+        ctx.font = 'bold 48px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ff88ff';
+        ctx.shadowColor = '#cc00ff'; ctx.shadowBlur = 18;
+        ctx.fillText('✨ VIBE JAM PORTAL', 256, 64);
+        const tex = new THREE.CanvasTexture(cv);
+        const lblMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthWrite: false });
+        const lbl = new THREE.Mesh(new THREE.PlaneGeometry(80, 15), lblMat);
+        lbl.position.set(0, 52, 0); grp.add(lbl);
+
+        worldGroup.add(grp);
+        _vjPortal = { grp, ring, disc, groundRing, light, lbl, x: px, z: pz, entered: false };
+      })();
     }
+
+    let _vjPortal = null;
 
     const clock = new THREE.Clock();
     let screenShake = 0.0;
@@ -4193,6 +4243,21 @@
         gameState.lakes.forEach(lk => { if (Math.hypot(x - lk.x, z - lk.z) < lk.r - 2.0) dead = true; });
         return dead;
       };
+
+      // ── VIBE JAM PORTAL: animate + collision (all modes) ─────────────────
+      if (_vjPortal && !_vjPortal.entered) {
+        _vjPortal.ring.rotation.z += dt * 0.8;
+        _vjPortal.groundRing.rotation.z -= dt * 0.5;
+        const pulse = 0.15 + Math.sin(time * 3) * 0.08;
+        _vjPortal.disc.material.opacity = pulse;
+        _vjPortal.light.intensity = 500 + Math.sin(time * 4) * 200;
+        const localP = gameMode === 'online-guest' ? players[1] : players[0];
+        if (localP && localP.alive && Math.hypot(localP.x - _vjPortal.x, localP.z - _vjPortal.z) < 26) {
+          _vjPortal.entered = true;
+          const params = new URLSearchParams({ ref: location.href, color: localP.teamColor || 'blue', speed: '5' });
+          setTimeout(() => { window.location.href = 'https://vibejam.cc/portal/2026?' + params.toString(); }, 300);
+        }
+      }
 
       // ── ONLINE GUEST: early return — render received state only ──────────
       if (gameMode === 'online-guest') {
