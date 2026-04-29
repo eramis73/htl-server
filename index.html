@@ -650,7 +650,8 @@
     #op-code-input::placeholder { color: rgba(74,222,128,0.25); letter-spacing: 10px; }
     #op-code-input:focus { border-color: #4ade80; box-shadow: 0 0 16px rgba(74,222,128,0.3); }
   </style>
-</head>
+    <script async src="https://vibejam.cc/2026/widget.js"></script>
+  </head>
 
 <body>
   <!-- Portrait warning -->
@@ -831,9 +832,21 @@
     <button id="btn-back" title="Back to Menu">←</button>
 
     <!-- Game Over overlay -->
-    <div id="game-over-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.78);z-index:800;align-items:center;justify-content:center;flex-direction:column;pointer-events:none;">
-      <div style="font-family:'Orbitron',sans-serif;font-size:clamp(2rem,8vw,4.5rem);color:#ff1744;text-shadow:0 0 24px #ff1744,0 0 60px rgba(255,0,0,0.5);letter-spacing:6px;animation:hudPulse 0.9s ease-in-out infinite alternate;">GAME OVER</div>
-      <div style="color:rgba(255,255,255,0.5);margin-top:18px;font-family:monospace;font-size:1rem;letter-spacing:2px;">Restarting...</div>
+    <div id="game-over-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;flex-direction:column;pointer-events:auto;backdrop-filter:blur(8px);">
+      <div style="font-family:'Orbitron',sans-serif;font-size:clamp(2rem,8vw,4.5rem);color:#ff1744;text-shadow:0 0 24px #ff1744,0 0 60px rgba(255,0,0,0.5);letter-spacing:6px;animation:hudPulse 0.9s ease-in-out infinite alternate;margin-bottom:40px;">GAME OVER</div>
+      <div style="display:flex;flex-direction:column;gap:15px;width:240px;">
+        <button onclick="restartLevel()" style="background:#2d1a1a;border:2px solid #ff1744;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;box-shadow:0 4px 15px rgba(255,23,68,0.2);">RESTART LEVEL</button>
+        <button onclick="backToMenuFromGameOver()" style="background:#1a1a1a;border:2px solid #64748b;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;">MAIN MENU</button>
+      </div>
+    </div>
+
+    <!-- Pause Menu overlay -->
+    <div id="pause-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:900;align-items:center;justify-content:center;flex-direction:column;pointer-events:auto;backdrop-filter:blur(5px);">
+      <div style="font-family:'Orbitron',sans-serif;font-size:3rem;color:#4ade80;margin-bottom:40px;letter-spacing:10px;text-shadow:0 0 20px rgba(74,222,128,0.5);">PAUSED</div>
+      <div style="display:flex;flex-direction:column;gap:15px;width:240px;">
+        <button onclick="resumeGame()" style="background:#1a4a1a;border:2px solid #4ade80;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;box-shadow:0 4px 15px rgba(74,222,128,0.2);">RESUME</button>
+        <button onclick="backToMenu()" style="background:#2d1a1a;border:2px solid #ff1744;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;box-shadow:0 4px 15px rgba(255,23,68,0.2);">BACK TO MENU</button>
+      </div>
     </div>
 
     <div id="hud" style="display: none;">
@@ -853,8 +866,9 @@
         <span class="hud-icon">🛡️</span>
         <span class="hud-value" id="hud-shield-val">0</span>
       </div>
-      <div class="hud-item" style="pointer-events:auto;flex-direction:row;gap:5px;padding:5px 7px;">
+      <div class="hud-item" style="pointer-events:auto;flex-direction:column;gap:5px;padding:5px 7px;">
         <button id="hud-btn-sfx" onclick="_toggleSfx()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:15px;width:26px;height:26px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="SFX">🔊</button>
+        <button id="hud-btn-pause" onclick="togglePause()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:15px;width:26px;height:26px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="Pause">⏸</button>
       </div>
       <div id="rtc-indicator" style="font-size:11px;font-family:monospace;font-weight:bold;opacity:0.75;pointer-events:none;align-self:center;margin-left:2px;"></div>
     </div>
@@ -886,6 +900,11 @@
           <span class="hud-value" style="color:#ef5350;">💀<span id="mp-p2-zombies">0</span></span>
           <span class="hud-value" style="color:#fff;">⭐<span id="mp-p2-score">0</span></span>
           <span id="mp-p2-phase" style="font-family:'Orbitron',sans-serif;font-size:7px;color:#ffeb3b;font-weight:700;"></span>
+        </div>
+        <!-- MP Controls -->
+        <div class="hud-item" style="pointer-events:auto;flex-direction:row;gap:8px;padding:5px 7px;">
+          <button id="mp-hud-btn-sfx" onclick="_toggleSfx()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:15px;width:32px;height:32px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="SFX">🔊</button>
+          <button id="mp-hud-btn-pause" onclick="togglePause()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:15px;width:32px;height:32px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="Pause">⏸</button>
         </div>
       </div>
       <!-- Top center: phase label -->
@@ -1095,7 +1114,8 @@
       active: false, level: 1, transitioning: false, zombiesAwake: true, spawnTimer: 0, kills: 0,
       _wasFrozen: false, slowMoTimer: 0, _mpNextLevel: false,
       lakes: [],
-      entities: { zombies: [], trees: [], flowers: [], barrels: [], powerups: [], patrollers: [] }
+      entities: { zombies: [], trees: [], flowers: [], barrels: [], powerups: [], patrollers: [] },
+      paused: false
     };
 
     function segsIntersect(a, b, c, d) {
@@ -1335,7 +1355,8 @@
         const dx = z.group.position.x - pos.x, dz = z.group.position.z - pos.z;
         if (!inBombRay(dx, dz)) return;
         z.hp = 0; z.shocked = true; z.shockTimer = 0.5; z.shockTimerMax = 0.5; z.smokeTimer = 0;
-        z.group.traverse(c => { if (c.isMesh && !c.userData.isOutline) { const sm = (c.userData.origMat || c.material).clone(); sm.emissive = new THREE.Color(0xff2200); sm.emissiveIntensity = 3.0; c.material = sm; c.userData.shockMat = sm; } });
+        applyRedGlow(z);
+        z.group.traverse(c => { if (c.isMesh && !c.userData.isOutline && (!z.eyeMeshes || !z.eyeMeshes.includes(c)) && z.mouthMesh !== c) { const sm = (c.userData.origMat || c.material).clone(); sm.emissive = new THREE.Color(0xff2200); sm.emissiveIntensity = 3.0; c.material = sm; c.userData.shockMat = sm; } });
         applyShockVisuals(z);
         if (isMP() && z.teamIdx >= 0) {
           const owner = players[z.teamIdx];
@@ -1358,7 +1379,7 @@
           const _winName = bomb.owner.teamColor === 'blue' ? playerNames[0] : playerNames[1];
           showFloatingText(pos, _winName + ' WINS!', bomb.owner.teamColor === 'blue' ? '#42a5f5' : '#ef5350');
           _el('mp-phase-label').textContent = _winName + ' WINS!';
-          if (!gameState.transitioning) { gameState.transitioning = true; vibe([100, 60, 100, 60, 300]); setTimeout(() => startGame(Math.min(gameState.level + 1, 30)), 5000); }
+          triggerGameOver();
         });
       }
     }
@@ -1610,8 +1631,10 @@
       if (!z.active || z._cannonKilled) return;
       z._cannonKilled = true;
       z.active = false;
+      applyRedGlow(z);
       z.group.visible = false;
       playSfx('bone');
+      playSfx('wood');
 
       if (cannonScatters.length >= 8) {
         const old = cannonScatters.shift();
@@ -1775,6 +1798,14 @@
       if (z.rLeg) z.rLeg.rotation.set(0, 0, 0);
     }
 
+    function applyRedGlow(z) {
+      if (!z || !z.eyeMeshes) return;
+      const redEye = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 3.5 });
+      const redMouth = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0xff0000, emissiveIntensity: 2.0 });
+      z.eyeMeshes.forEach(m => { m.material = redEye; });
+      if (z.mouthMesh) z.mouthMesh.material = redMouth;
+    }
+
     function spawnZombieAt(zx, zz, baseSpeed) {
       let zType = 0; let scale = 1.4; let hp = 1; let speed = baseSpeed;
 
@@ -1830,14 +1861,26 @@
         tooth.position.set(tx, -1.8, 1.0); jawGrp.add(tooth);
         addOutline(tooth, 1.25);
       });
-      // Eye sockets — black void
+      
+      // Black mats for initial state
+      const socketMat = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.9 });
+      const mouthMat = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 0.9 });
+      
+      // Mouth glow inside jaw (initially black)
+      const mouthGlow = new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.2, 2.2), mouthMat);
+      mouthGlow.position.set(0, -0.6, 0.8); jawGrp.add(mouthGlow);
+
+      // Eye sockets — initially black
+      const eyeMeshes = [];
       [-2.2, 2.2].forEach(ox => {
         const socket = new THREE.Mesh(new THREE.SphereGeometry(1.9, 10, 10), socketMat);
         socket.position.set(ox, 13.0, 4.5); zGroup.add(socket);
+        eyeMeshes.push(socket);
       });
       // Nose socket
       const nose = new THREE.Mesh(new THREE.SphereGeometry(0.8, 8, 8), socketMat);
       nose.position.set(0, 11.5, 5.3); zGroup.add(nose);
+      eyeMeshes.push(nose);
 
       // Omurga
       [9.5, 8.0, 6.5].forEach(y => {
@@ -1919,6 +1962,7 @@
       zGroup.traverse(child => { if (child.isMesh && !child.userData.isOutline) child.userData.origMat = child.material; });
       gameState.entities.zombies.push({
         group: zGroup, lLeg: lLeg, rLeg: rLeg, lArm: lArm, rArm: rArm, jawGrp: jawGrp,
+        eyeMeshes: eyeMeshes, mouthMesh: mouthGlow,
         active: true, dirX: 0, dirZ: 0, speed: speed,
         hp: hp || 1, maxHp: hp || 1, type: zType || 0,
         isFalling: false, fallTime: 0,
@@ -2896,6 +2940,7 @@
     }
 
     function createSharedExplosion(pos, blastRange, ranges) {
+      playSfx('boom');
       createBarrelBlastRays(pos, blastRange, ranges);
       createSmokePuff(pos.clone());
       createSmokePuff(pos.clone().add(new THREE.Vector3(8, 0, 0)));
@@ -4142,9 +4187,15 @@
         if (players[1].wireMesh) { players[1].wireMesh.geometry.dispose(); players[1].wireMesh.geometry = new THREE.BufferGeometry(); }
         if (players[1].wireOuterMesh) { players[1].wireOuterMesh.geometry.dispose(); players[1].wireOuterMesh.geometry = new THREE.BufferGeometry(); }
         if (players[1].startMarker) players[1].startMarker.visible = false;
-        document.getElementById('mp-hud').style.display = 'none';
         document.getElementById('hud').style.display = 'flex';
         gameState.mpCageSkip = false;
+      }
+
+      // Skip start screen if portaling in
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('portal') === 'true') {
+        document.getElementById('start-screen').style.display = 'none';
+        gameState.active = true;
       }
 
       buildGridArena(lvl);
@@ -4220,6 +4271,22 @@
         worldGroup.add(grp);
         _vjPortal = { grp, disc, groundRing, light, lbl, x: px, z: pz, entered: false };
       })();
+
+      // Start Portal (if coming from another game)
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('portal') === 'true') {
+        const ref = urlParams.get('ref') || 'vibejam.cc';
+        const startX = 0, startZ = -ARENA_LIMIT + 22;
+        players[0].x = startX; players[0].z = startZ;
+        players[0].group.position.set(startX, 0, startZ);
+        
+        // Spawn ring effect
+        const sGrp = new THREE.Group(); sGrp.position.set(startX, 0, startZ);
+        const sRing = new THREE.Mesh(new THREE.RingGeometry(18, 22, 32), new THREE.MeshBasicMaterial({ color: 0x44ffff, transparent: true, opacity: 0.8 }));
+        sRing.rotation.x = -Math.PI/2; sRing.position.y = 1; sGrp.add(sRing);
+        worldGroup.add(sGrp);
+        setTimeout(() => worldGroup.remove(sGrp), 2000);
+      }
     }
 
     let _vjPortal = null;
@@ -4465,7 +4532,7 @@
     function _syncAudioButtons() {
       const pp = document.getElementById('btn-playpause');
       if (pp) pp.textContent = _musicOn ? '⏸' : '▶';
-      ['btn-sfx','hud-btn-sfx'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = _sfxOn ? '🔊' : '🔈'; });
+      ['btn-sfx','hud-btn-sfx','mp-hud-btn-sfx'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = _sfxOn ? '🔊' : '🔈'; });
     }
 
     function playSfx(type) {
@@ -4501,13 +4568,94 @@
       }
 
       if (type === 'boom') {
-        // Explosion: shockwave crack + sub thump + body rumble + shrapnel + tail
-        osc(75,  now,        0.65, 0.95, 'sine', 22);   // sub thump sweep
-        osc(140, now,        0.12, 0.55, 'sine', 45);   // punch attack layer
-        noise(0.05, 0.9,  null, 1000, 1);               // initial crack burst (broadband)
-        noise(0.85, 0.78, 480,  null,  5);              // low body (lowpass rumble)
-        noise(0.22, 0.38, null, 1600,  4);              // shrapnel (highpass)
-        noise(1.2,  0.42, 220,  null,  3);              // distant rumble tail
+        // ── BASS-HEAVY EXPLOSION SOUND (düşük frekans ağırlıklı) ─────────────
+
+        // Katman 1: Çok derin sub-bass şok dalgası — güçlü ve kalın
+        (() => {
+          const len = Math.floor(3.0 * SR);
+          const buf = _audCtx.createBuffer(1, len, SR);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            const t = i / SR;
+            // Çok düşük frekans sweep: 60Hz → 18Hz
+            const freq = 60 * Math.exp(-t * 8) + 18;
+            const phase = freq * t * 2 * Math.PI;
+            const sub = Math.sin(phase) * 0.95
+                      + Math.sin(phase * 2) * 0.25
+                      + Math.sin(phase * 0.5) * 0.18; // oktav altı
+            const env = Math.exp(-t * 2.5);
+            d[i] = Math.max(-1, Math.min(1, sub * env * 1.2));
+          }
+          const src = _audCtx.createBufferSource();
+          src.buffer = buf;
+          const lp = _audCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 120;
+          const g = _audCtx.createGain(); g.gain.value = 1.1;
+          src.connect(lp); lp.connect(g); g.connect(_sfxGainNode);
+          src.start(now);
+        })();
+
+        // Katman 2: Kalın gövde rumble — düşük geçiren gürültü, uzun kuyruk
+        (() => {
+          const len = Math.floor(2.8 * SR);
+          const buf = _audCtx.createBuffer(1, len, SR);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            const t = i / SR;
+            d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 1.6);
+          }
+          const src = _audCtx.createBufferSource();
+          src.buffer = buf;
+          const lp = _audCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 280;
+          const g = _audCtx.createGain(); g.gain.value = 0.85;
+          src.connect(lp); lp.connect(g); g.connect(_sfxGainNode);
+          src.start(now);
+        })();
+
+        // Katman 3: Orta-alt bant — patlama gövdesi (300-800 Hz)
+        (() => {
+          const len = Math.floor(0.7 * SR);
+          const buf = _audCtx.createBuffer(1, len, SR);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            const t = i / SR;
+            d[i] = (Math.random() * 2 - 1) * Math.exp(-t * 5.5);
+          }
+          const src = _audCtx.createBufferSource();
+          src.buffer = buf;
+          const hp = _audCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 300;
+          const lp = _audCtx.createBiquadFilter(); lp.type = 'lowpass';  lp.frequency.value = 800;
+          const g = _audCtx.createGain(); g.gain.value = 0.55;
+          src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(_sfxGainNode);
+          src.start(now);
+        })();
+
+        // Katman 4: Uzak toprak gümbürtüsü — çok düşük frekanslı yankı kuyruğu
+        (() => {
+          const len = Math.floor(3.5 * SR);
+          const buf = _audCtx.createBuffer(1, len, SR);
+          const d = buf.getChannelData(0);
+          for (let i = 0; i < len; i++) {
+            const t = i / SR;
+            d[i] = (Math.random() * 2 - 1) * (t < 0.08 ? 0 : Math.exp(-(t - 0.08) * 1.0));
+          }
+          const src = _audCtx.createBufferSource();
+          src.buffer = buf;
+          const lp = _audCtx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 140;
+          const g = _audCtx.createGain();
+          g.gain.setValueAtTime(0, now);
+          g.gain.linearRampToValueAtTime(0.7, now + 0.1);
+          g.gain.exponentialRampToValueAtTime(0.0001, now + 3.5);
+          src.connect(lp); lp.connect(g); g.connect(_sfxGainNode);
+          src.start(now);
+        })();
+
+        // Katman 5: Bas punch darbe — ani baskı hissi
+        osc(42,  now,        0.35, 1.4, 'sine', 14);
+        osc(85,  now,        0.14, 0.9, 'sine', 28);
+        osc(160, now,        0.06, 0.4, 'sine', 50);  // hafif orta punch (tiz değil)
+        
+        // Katman 6: Patlama enkazı (debris) - tahta tıkırtıları
+        playSfx('wood');
 
       } else if (type === 'bone') {
         // Bone crack: dry sharp impact + crunch noise
@@ -4530,13 +4678,34 @@
         ns.connect(hp); hp.connect(g); g.connect(_sfxGainNode); ns.start(now);
 
       } else if (type === 'zap') {
-        // Electric wire zap: sharp discharge + resonant zing
-        for (let i = 0; i < 2; i++) {
-          osc(1400 - i*200, now+i*0.04, 0.14, 0.28, 'sawtooth', 180);
-        }
-        noise(0.12, 0.22, null, 800, 3);
-        osc(520, now, 0.08, 0.18, 'square', 80);
-
+        // 'Zııııııing' sound: long buzzing to rising sweep
+        const dur = 1.0;
+        const g = _audCtx.createGain(); g.gain.setValueAtTime(0, now);
+        g.gain.linearRampToValueAtTime(0.35, now + 0.1);
+        g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+        
+        // Base buzz (zııı)
+        const o = _audCtx.createOscillator(); o.type = 'sawtooth';
+        o.frequency.setValueAtTime(55, now);
+        o.frequency.exponentialRampToValueAtTime(180, now + dur);
+        
+        // Rapid tremolo for 'zııı' effect
+        const t = _audCtx.createOscillator(); t.type = 'square'; t.frequency.value = 45;
+        const tG = _audCtx.createGain(); tG.gain.value = 0.6;
+        const tBase = _audCtx.createGain(); tBase.gain.value = 0.4;
+        t.connect(tG); 
+        
+        // Resonant filter for the 'zing'
+        const f = _audCtx.createBiquadFilter(); f.type = 'lowpass';
+        f.Q.value = 18;
+        f.frequency.setValueAtTime(100, now);
+        f.frequency.exponentialRampToValueAtTime(800, now + dur);
+        
+        o.connect(f); f.connect(g); g.connect(_sfxGainNode);
+        o.start(now); o.stop(now + dur); t.start(now); t.stop(now + dur);
+        
+        // Sub thud for 'tok'
+        osc(45, now, 0.4, 0.4, 'sine');
       } else if (type === 'die') {
         // Player death: descending thud + scatter noise
         osc(380, now, 0.5, 0.38, 'sine', 48);
@@ -4567,8 +4736,92 @@
         osc(880, now, 0.18, 0.26, 'sine');
         osc(1320, now, 0.12, 0.14, 'sine');
         osc(660, now+0.08, 0.2, 0.18, 'triangle', 440);
+
+      } else if (type === 'wood') {
+        // Wood clattering: multiple short thuds + noise bursts (like 20 pieces of wood hitting)
+        for (let i = 0; i < 20; i++) {
+          const dt = i * 0.02 + Math.random() * 0.03;
+          const dur = 0.05 + Math.random() * 0.15;
+          const amp = (0.2 + Math.random() * 0.35) * (1 - i/22);
+          // Low thud body (wood resonance)
+          osc(100 + Math.random()*120, now + dt, dur, amp, 'sine', 50);
+          // Mid-frequency "knock"
+          osc(350 + Math.random()*400, now + dt, 0.02, amp*0.6, 'triangle');
+          // Short noise burst (impact/friction)
+          noise(dur, amp * 0.5, 1400, 350, 10);
+        }
+      } else if (type === 'scream') {
+        // Complementary 'zıııing' layer
+        const dur = 1.0;
+        const g = _audCtx.createGain(); g.gain.setValueAtTime(0.001, now);
+        g.gain.linearRampToValueAtTime(0.2, now + 0.2);
+        g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+        
+        const o = _audCtx.createOscillator(); o.type = 'square';
+        o.frequency.setValueAtTime(40, now);
+        o.frequency.exponentialRampToValueAtTime(220, now + dur);
+        
+        const lp = _audCtx.createBiquadFilter(); lp.type = 'lowpass';
+        lp.frequency.value = 400;
+        
+        o.connect(lp); lp.connect(g); g.connect(_sfxGainNode);
+        o.start(now); o.stop(now + dur);
       }
     }
+
+    function togglePause() {
+      if (!gameState.active || gameState.transitioning) return;
+      gameState.paused = !gameState.paused;
+      const screen = document.getElementById('pause-screen');
+      screen.style.display = gameState.paused ? 'flex' : 'none';
+      if (gameState.paused) {
+        if (_audCtx) _audCtx.suspend();
+      } else {
+        if (_audCtx) _audCtx.resume();
+      }
+    }
+
+    function resumeGame() {
+      if (gameState.paused) togglePause();
+    }
+
+    function backToMenu() {
+      gameState.paused = false;
+      document.getElementById('pause-screen').style.display = 'none';
+      document.getElementById('game-over-screen').style.display = 'none';
+      if (_audCtx) _audCtx.resume();
+      gameState.active = false;
+      document.getElementById('hud').style.display = 'none';
+      document.getElementById('mp-hud').style.display = 'none';
+      document.getElementById('main-menu').style.display = 'flex';
+      clearWorld();
+    }
+
+    function triggerGameOver() {
+      if (gameState.transitioning) return;
+      gameState.transitioning = true;
+      setTimeout(() => {
+        document.getElementById('game-over-screen').style.display = 'flex';
+        if (_audCtx) _audCtx.suspend();
+      }, 1500);
+    }
+
+    function restartLevel() {
+      document.getElementById('game-over-screen').style.display = 'none';
+      if (_audCtx) _audCtx.resume();
+      startGame(gameState.level);
+    }
+
+    function backToMenuFromGameOver() {
+      backToMenu();
+    }
+
+    window.togglePause = togglePause;
+    window.resumeGame = resumeGame;
+    window.backToMenu = backToMenu;
+    window._toggleSfx = _toggleSfx;
+    window.restartLevel = restartLevel;
+    window.backToMenuFromGameOver = backToMenuFromGameOver;
 
     const clock = new THREE.Clock();
     let screenShake = 0.0;
@@ -4607,6 +4860,10 @@
       const conf = LEVELS[gameState.level - 1] || LEVELS[LEVELS.length - 1];
 
       let dt = Math.min(clock.getDelta(), 0.1);
+      if (gameState.paused) {
+        renderer.render(scene, camera);
+        return;
+      }
       if (gameState.slowMoTimer > 0) { gameState.slowMoTimer -= dt; dt *= 0.25; }
       const time = clock.getElapsedTime();
       
@@ -4789,7 +5046,7 @@
             if (!calcInRay(dx, dz)) return;
             pl._rayHit = e;
             if (pl.shield) { breakShield(pl, "SHIELD BLOCKED!"); }
-            else { playerDeathScatter(pl); pl.alive = false; pl.group.visible = false; if (!gameState.transitioning) { gameState.transitioning = true; setTimeout(() => { setTimeout(() => startGame(gameState.level), 3000); }, 1000); } }
+            else { playerDeathScatter(pl); pl.alive = false; pl.group.visible = false; triggerGameOver(); }
           });
           // 2. Zombies
           gameState.entities.zombies.forEach(z => {
@@ -5128,7 +5385,8 @@
                     }
                     if (shockCount < 5) { createElectricShock(z.group.position); shockCount++; }
                     z.shocked = true; z.shockTimer = 1.2; z.shockTimerMax = 1.2; z.smokeTimer = 0;
-                    z.group.traverse(c => { if (c.isMesh && !c.userData.isOutline) { const sm = (c.userData.origMat || c.material).clone(); sm.emissive = new THREE.Color(0x00e5ff); sm.emissiveIntensity = 3.0; c.material = sm; c.userData.shockMat = sm; } });
+                    applyRedGlow(z);
+                    z.group.traverse(c => { if (c.isMesh && !c.userData.isOutline && (!z.eyeMeshes || !z.eyeMeshes.includes(c)) && z.mouthMesh !== c) { const sm = (c.userData.origMat || c.material).clone(); sm.emissive = new THREE.Color(0x00e5ff); sm.emissiveIntensity = 3.0; c.material = sm; c.userData.shockMat = sm; } });
                     z.group.traverse(c => { if (c.userData.isOutline) c.visible = true; });
                     if (z.lArm) z.lArm.rotation.set(-0.3, -Math.PI / 2, 0);
                     if (z.rArm) z.rArm.rotation.set(-0.3,  Math.PI / 2, 0);
@@ -5176,10 +5434,8 @@
                   if (cagedGirl.girl) cagedGirl.girl.traverse(c => { if (c.isMesh) c.material = charMat2; });
                   showFloatingText(cagePos, "⚠️ GIRL BURNED IN CAGE! GAME OVER!", "#ff3d00");
                   if (gameState.transitioning) return;
-                  gameState.transitioning = true;
-                  p.isDrawingWire = false; p.wirePoints = []; p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry();
                   p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry(); p.startMarker.visible = false;
-                  setTimeout(() => { worldGroup.remove(wireFireL); startGame(gameState.level); }, 5000);
+                  triggerGameOver();
                   return;
                 }
 
@@ -5238,13 +5494,14 @@
                     const dx = p.x - explPos.x, dz = p.z - explPos.z;
                     if (inBlastRay(dx, dz)) {
                       if (p.shield) { breakShield(p, "SHIELD BLOCKED!"); }
-                      else { p.alive = false; p.group.visible = false; p.isDrawingWire = false; p.wirePoints = []; p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry(); p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry(); p.startMarker.visible = false; mpDeclareWinner(p); if (!gameState.transitioning) { gameState.transitioning = true; setTimeout(() => { setTimeout(() => startGame(gameState.level), 3000); }, 1000); } }
+                      else { p.alive = false; p.group.visible = false; p.isDrawingWire = false; p.wirePoints = []; p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry(); p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry(); p.startMarker.visible = false; mpDeclareWinner(p); triggerGameOver(); }
                     }
                   });
                 }
 
                 if (deadZs > 0) {
                   playSfx('zap');
+                  playSfx('scream');
                   p.combo += 1; p.comboTime = 3.5;
                   gameState.kills += deadZs;
                   let pts = deadZs * 25 * p.combo;
@@ -5421,7 +5678,7 @@
               p.startMarker.visible = false; p.wireMesh.visible = false; p.wireOuterMesh.visible = false;
               createWaterSplash(p.group.position, splashCol);
               mpDeclareWinner(p);
-              if (!gameState.transitioning) { gameState.transitioning = true; setTimeout(() => { setTimeout(() => startGame(gameState.level), 3000); }, 2800); }
+              triggerGameOver();
             }
           }
         });
@@ -5532,7 +5789,7 @@
                   playerDeathScatter(p);
                   p.alive = false; p.group.visible = false; p.startMarker.visible = false; p.wireMesh.visible = false; p.wireOuterMesh.visible = false;
                   mpDeclareWinner(p);
-                  if (!gameState.transitioning) { gameState.transitioning = true; setTimeout(() => { setTimeout(() => startGame(gameState.level), 3000); }, 1000); }
+                  triggerGameOver();
                 }
               }
             });
@@ -5658,6 +5915,7 @@
               wc.ballFlying = false; wc.ball.visible = false;
               wc.shadowMesh.visible = false; wc.shadowMesh.scale.setScalar(1.0);
               const hitPos = new THREE.Vector3(wc.ballX, 0, wc.ballZ);
+              playSfx('boom'); // Top yere çarptığında patlama sesi
               createSmokePuff(hitPos);
               createNapalmBlast(hitPos, 18); // Burns those entering / standing inside
             }
@@ -6006,13 +6264,32 @@
                 }
                 playerDeathScatter(p);
                 p.alive = false; p.group.visible = false; p.isDrawingWire = false; p.wirePoints = []; p.startMarker.visible = false; p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry(); p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry();
-                if (!gameState.transitioning) { gameState.transitioning = true; setTimeout(() => { setTimeout(() => startGame(gameState.level), 3000); }, 1000); }
+                triggerGameOver();
               }
             });
           });
         }
 
       }
+      // ── VIBE JAM PORTAL COLLISION ─────────────────────────────────────────
+      if (_vjPortal && !_vjPortal.entered && gameState.active && !gameState.paused) {
+        const p0 = players[0];
+        const dx = p0.x - _vjPortal.x, dz = p0.z - _vjPortal.z;
+        if (Math.hypot(dx, dz) < 20) {
+          _vjPortal.entered = true;
+          vibe([100, 50, 100, 50, 400]);
+          showFloatingText(p0.group.position, "PORTAL ENTERED! 🌀", "#ee88ff");
+          setTimeout(() => {
+            const up = new URLSearchParams();
+            up.set('portal', 'true');
+            up.set('ref', window.location.hostname);
+            up.set('color', 'blue');
+            up.set('hp', '100');
+            window.location.href = "https://vibejam.cc/portal/2026?" + up.toString();
+          }, 800);
+        }
+      }
+
       // Continuously update timers in HUD
       if (gameState.active) { updateHUD(); if (isMP()) updateMpHud(); }
 
