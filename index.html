@@ -3816,7 +3816,7 @@
         const p = players[i];
         const wPts = (p.isDrawingWire && p.wirePoints.length >= 2) 
           ? p.wirePoints.map(wp => [Math.round(wp.x), Math.round(wp.z)]) : null;
-        // [x, z, alive, sinking, dashing, rot, wireFlag, wirePoints]
+        // [x, z, alive, sinking, dashing, rot, wireFlag, wirePoints, score, zombiesLeft, inBombPhase, activeBombCount, shields]
         sPlayers.push([
           Math.round(p.x * 10) / 10,
           Math.round(p.z * 10) / 10,
@@ -3825,7 +3825,12 @@
           p.isDashing ? 1 : 0,
           Math.round(p.group.rotation.y * 100) / 100,
           p.isDrawingWire ? 1 : 0,
-          wPts
+          wPts,
+          p.score || 0,
+          p.zombiesLeft || 0,
+          p.inBombPhase ? 1 : 0,
+          p.activeBombCount || 0,
+          p.shields || 0
         ]);
       }
 
@@ -3881,6 +3886,11 @@
           }
 
           const wPts = pd[7];
+          if (pd[8]  !== undefined) p.score          = pd[8];
+          if (pd[9]  !== undefined) p.zombiesLeft     = pd[9];
+          if (pd[10] !== undefined) p.inBombPhase     = !!pd[10];
+          if (pd[11] !== undefined) p.activeBombCount = pd[11];
+          if (pd[12] !== undefined) p.shields         = pd[12];
 
           if (p.group) {
              p.group.visible = p.alive || p.sinking;
