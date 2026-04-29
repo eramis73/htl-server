@@ -766,6 +766,10 @@
             <button class="btn" id="start-mp-btn" style="background:linear-gradient(135deg,#b71c1c,#7f0000);box-shadow:0 4px 0 #4a0000,0 0 30px rgba(183,28,28,0.5);">&#9876;&nbsp; MULTIPLAYER</button>
             <button class="btn" id="btn-online" style="background:linear-gradient(135deg,#1a4a1a,#0a2a0a);box-shadow:0 4px 0 #051505,0 0 30px rgba(74,222,128,0.35);">&#127760;&nbsp; ONLINE</button>
           </div>
+          <div style="display:flex;gap:10px;margin-top:4px;">
+            <button id="btn-music" onclick="_toggleMusic()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:20px;width:44px;height:44px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Music">🎵</button>
+            <button id="btn-sfx" onclick="_toggleSfx()" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);color:#fff;font-size:20px;width:44px;height:44px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;" title="Sound FX">🔊</button>
+          </div>
         </div>
 
       </div>
@@ -826,7 +830,11 @@
     <button id="btn-back" title="Back to Menu">←</button>
 
     <div id="hud" style="display: none;">
-      <div id="rtc-indicator" style="position:fixed;top:6px;right:8px;font-size:11px;font-family:monospace;font-weight:bold;z-index:999;opacity:0.75;pointer-events:none;"></div>
+      <div style="position:fixed;top:6px;right:8px;z-index:999;display:flex;align-items:center;gap:6px;">
+        <div id="rtc-indicator" style="font-size:11px;font-family:monospace;font-weight:bold;opacity:0.75;pointer-events:none;"></div>
+        <button id="hud-btn-music" onclick="_toggleMusic()" style="background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:14px;width:28px;height:28px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="Music">🎵</button>
+        <button id="hud-btn-sfx" onclick="_toggleSfx()" style="background:rgba(0,0,0,0.45);border:1px solid rgba(255,255,255,0.15);color:#fff;font-size:14px;width:28px;height:28px;border-radius:6px;cursor:pointer;padding:0;line-height:1;" title="SFX">🔊</button>
+      </div>
       <div class="hud-item" id="hud-level">
         <span class="hud-icon">⚔️</span>
         <span class="hud-value" id="hud-level-val">1</span>
@@ -1283,6 +1291,7 @@
     }
 
     function bombExplode(bomb) {
+      playSfx('boom');
       const pos = bomb.group.position.clone();
       worldGroup.remove(bomb.group);
       bomb.done = true;
@@ -2014,7 +2023,7 @@
       });
     }
 
-    function applyMysteryEffect(effect, p, pos) {
+    function applyMysteryEffect(effect, p, pos) { playSfx('pickup');
       switch (effect) {
         case 'speed':
           p.buffSpeedTime = 10;
@@ -3115,7 +3124,7 @@
       resetPlayer(p);
     }
 
-    function playerDeathScatter(p) {
+    function playerDeathScatter(p) { playSfx('die');
       vibe([80, 40, 200]);
       createBloodSplatter(p.group.position.clone());
       const wp = new THREE.Vector3();
@@ -3922,6 +3931,7 @@
 
     // Online panel button wiring
     document.getElementById('btn-online').addEventListener('click', () => {
+      _initAudio();
       _showOnlineScreen('op-main');
       document.getElementById('online-panel').classList.add('open');
     });
@@ -3999,6 +4009,7 @@
     });
 
     document.getElementById('start-btn').addEventListener('click', () => {
+      _initAudio();
       gameMode = 'single';
       openSingleLevelSelect();
     });
@@ -4006,6 +4017,7 @@
     const playerNames = ['Player 1', 'Player 2'];
 
     document.getElementById('start-mp-btn').addEventListener('click', () => {
+      _initAudio();
       gameMode = 'multi';
       openMpLevelSelect();
     });
@@ -4197,6 +4209,149 @@
     }
 
     let _vjPortal = null;
+
+    // ─── AUDIO ENGINE ───────────────────────────────────────────────────────
+    let _audCtx = null, _musicSrc = null, _musicGainNode = null, _sfxGainNode = null;
+    let _musicOn = true, _sfxOn = true;
+
+    function _initAudio() {
+      if (_audCtx) { if (_audCtx.state === 'suspended') _audCtx.resume(); return; }
+      _audCtx = new (window.AudioContext || window.webkitAudioContext)();
+      _musicGainNode = _audCtx.createGain(); _musicGainNode.gain.value = 0.28;
+      _sfxGainNode   = _audCtx.createGain(); _sfxGainNode.gain.value   = 0.55;
+      _musicGainNode.connect(_audCtx.destination);
+      _sfxGainNode.connect(_audCtx.destination);
+      if (_musicOn) _startMusic();
+    }
+
+    function _buildMusicBuffer() {
+      const SR = _audCtx.sampleRate, BPM = 122;
+      const beat = 60 / BPM, bars = 4;
+      const N = Math.ceil(bars * 4 * beat * SR);
+      const buf = _audCtx.createBuffer(1, N, SR);
+      const d = buf.getChannelData(0);
+      const b = beat, e = beat / 2;
+
+      function addOsc(freq, t0, dur, amp, wave) {
+        const i0 = Math.floor(t0 * SR), iN = Math.min(N, i0 + Math.floor(dur * SR));
+        for (let i = i0; i < iN; i++) {
+          const t = (i - i0) / SR;
+          const env = Math.min(1, t / 0.008) * Math.exp(-t * 3.5 / dur);
+          const ph = 2 * Math.PI * freq * t;
+          const v = wave === 'sq' ? Math.sign(Math.sin(ph)) : wave === 'saw' ? (2 * ((freq * t) % 1) - 1) : Math.sin(ph);
+          d[i] = Math.max(-1, Math.min(1, d[i] + v * amp * env));
+        }
+      }
+      function kick(t0) {
+        const i0 = Math.floor(t0 * SR), len = Math.floor(0.2 * SR);
+        for (let i = 0; i < len && i0+i < N; i++) {
+          const t = i / SR, f = 75 * Math.exp(-t * 22) + 38, env = Math.exp(-t * 16);
+          d[i0+i] = Math.max(-1, Math.min(1, d[i0+i] + Math.sin(2*Math.PI*f*t) * env * 0.72));
+        }
+      }
+      function snare(t0) {
+        const i0 = Math.floor(t0 * SR), len = Math.floor(0.1 * SR);
+        for (let i = 0; i < len && i0+i < N; i++)
+          d[i0+i] = Math.max(-1, Math.min(1, d[i0+i] + (Math.random()*2-1) * Math.exp(-i/len*6) * 0.32));
+      }
+      function hihat(t0, amp) {
+        const i0 = Math.floor(t0 * SR), len = Math.floor(0.035 * SR);
+        for (let i = 0; i < len && i0+i < N; i++)
+          d[i0+i] = Math.max(-1, Math.min(1, d[i0+i] + (Math.random()*2-1) * Math.exp(-i/len*14) * amp));
+      }
+
+      // Am pentatonic bass: A2=110, C3=130.81, D3=146.83, E3=164.81, G3=196
+      const bass = [110,0,130.81,146.83, 110,0,164.81,130.81, 110,0,130.81,196, 146.83,110,164.81,0];
+      // Lead melody: A4=440, C5=523.25, E4=329.63, B4=493.88, G4=392, D5=587.33
+      const mel  = [440,0,523.25,0, 493.88,440,392,329.63, 440,0,523.25,493.88, 440,392,329.63,0];
+
+      for (let bar = 0; bar < bars; bar++) {
+        const bt = bar * 4 * b;
+        kick(bt); kick(bt+2*b); snare(bt+b); snare(bt+3*b);
+        for (let h = 0; h < 8; h++) hihat(bt + h*e, h%2===0 ? 0.14 : 0.07);
+        for (let i = 0; i < 16; i++) {
+          if (bass[i]) { addOsc(bass[i], bt+i*e, e*0.88, 0.2, 'saw'); addOsc(bass[i]/2, bt+i*e, e*0.82, 0.1, 'sin'); }
+          if (bar >= 1 && mel[i]) addOsc(mel[i], bt+i*e, e*0.78, 0.11, 'sq');
+        }
+      }
+      // Normalize
+      let mx = 0; for (let i = 0; i < N; i++) mx = Math.max(mx, Math.abs(d[i]));
+      if (mx > 0.88) { const sc = 0.88/mx; for (let i = 0; i < N; i++) d[i] *= sc; }
+      return buf;
+    }
+
+    function _startMusic() {
+      if (!_audCtx || !_musicOn) return;
+      if (_musicSrc) { try { _musicSrc.stop(); } catch(e){} _musicSrc = null; }
+      const buf = _buildMusicBuffer();
+      _musicSrc = _audCtx.createBufferSource();
+      _musicSrc.buffer = buf; _musicSrc.loop = true;
+      _musicSrc.connect(_musicGainNode); _musicSrc.start();
+    }
+
+    function _toggleMusic() {
+      _musicOn = !_musicOn;
+      if (_musicOn) { if (_audCtx) _startMusic(); }
+      else { if (_musicSrc) { try { _musicSrc.stop(); } catch(e){} _musicSrc = null; } }
+      _syncAudioButtons();
+    }
+
+    function _toggleSfx() { _sfxOn = !_sfxOn; _syncAudioButtons(); }
+
+    function _syncAudioButtons() {
+      ['btn-music','hud-btn-music'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = _musicOn ? '🎵' : '🔇'; });
+      ['btn-sfx','hud-btn-sfx'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = _sfxOn ? '🔊' : '🔈'; });
+    }
+
+    function playSfx(type) {
+      if (!_audCtx || !_sfxOn) return;
+      const now = _audCtx.currentTime;
+      function osc(freq, t, dur, amp, wave) {
+        const o = _audCtx.createOscillator(), g = _audCtx.createGain();
+        o.type = wave || 'square'; o.frequency.value = freq;
+        g.gain.setValueAtTime(amp, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+        o.connect(g); g.connect(_sfxGainNode); o.start(t); o.stop(t + dur + 0.05);
+      }
+      if (type === 'zap') {
+        for (let i = 0; i < 3; i++) {
+          const o = _audCtx.createOscillator(), g = _audCtx.createGain();
+          o.type = 'sawtooth'; o.frequency.setValueAtTime(900+i*250, now+i*0.05);
+          o.frequency.exponentialRampToValueAtTime(180, now+i*0.05+0.18);
+          g.gain.setValueAtTime(0.28, now+i*0.05); g.gain.exponentialRampToValueAtTime(0.001, now+i*0.05+0.18);
+          o.connect(g); g.connect(_sfxGainNode); o.start(now+i*0.05); o.stop(now+i*0.05+0.22);
+        }
+      } else if (type === 'boom') {
+        const nb = _audCtx.createBuffer(1, Math.floor(0.55*SR), SR);
+        const nd = nb.getChannelData(0); const SR = _audCtx.sampleRate;
+        for (let i = 0; i < nd.length; i++) nd[i] = (Math.random()*2-1) * Math.exp(-i/nd.length*7);
+        const ns = _audCtx.createBufferSource(), f = _audCtx.createBiquadFilter(), g = _audCtx.createGain();
+        f.type = 'lowpass'; f.frequency.value = 380; g.gain.value = 0.55;
+        ns.buffer = nb; ns.connect(f); f.connect(g); g.connect(_sfxGainNode); ns.start(now);
+        osc(75, now, 0.35, 0.5, 'sine');
+        const o2 = _audCtx.createOscillator(), g2 = _audCtx.createGain();
+        o2.frequency.setValueAtTime(80, now); o2.frequency.exponentialRampToValueAtTime(28, now+0.3);
+        g2.gain.setValueAtTime(0.45, now); g2.gain.exponentialRampToValueAtTime(0.001, now+0.35);
+        o2.connect(g2); g2.connect(_sfxGainNode); o2.start(now); o2.stop(now+0.4);
+      } else if (type === 'die') {
+        const o = _audCtx.createOscillator(), g = _audCtx.createGain();
+        o.type = 'square'; o.frequency.setValueAtTime(440, now); o.frequency.exponentialRampToValueAtTime(55, now+0.55);
+        g.gain.setValueAtTime(0.3, now); g.gain.exponentialRampToValueAtTime(0.001, now+0.55);
+        o.connect(g); g.connect(_sfxGainNode); o.start(now); o.stop(now+0.6);
+      } else if (type === 'win') {
+        [261.63, 329.63, 392, 523.25].forEach((f, i) => osc(f, now+i*0.13, 0.3, 0.22, 'square'));
+      } else if (type === 'pickup') {
+        [880, 1108.73, 1318.51].forEach((f, i) => osc(f, now+i*0.07, 0.22, 0.18, 'sine'));
+      } else if (type === 'wire') {
+        osc(260, now, 0.09, 0.14, 'sawtooth');
+      } else if (type === 'cannon') {
+        const o = _audCtx.createOscillator(), g = _audCtx.createGain();
+        o.type = 'sawtooth'; o.frequency.setValueAtTime(320, now); o.frequency.exponentialRampToValueAtTime(75, now+0.32);
+        g.gain.setValueAtTime(0.28, now); g.gain.exponentialRampToValueAtTime(0.001, now+0.32);
+        o.connect(g); g.connect(_sfxGainNode); o.start(now); o.stop(now+0.36);
+      } else if (type === 'shield') {
+        osc(660, now, 0.08, 0.2, 'sine'); osc(440, now+0.06, 0.12, 0.15, 'sine');
+      }
+    }
 
     const clock = new THREE.Clock();
     let screenShake = 0.0;
@@ -4873,6 +5028,7 @@
                 }
 
                 if (deadZs > 0) {
+                  playSfx('zap');
                   p.combo += 1; p.comboTime = 3.5;
                   gameState.kills += deadZs;
                   let pts = deadZs * 25 * p.combo;
