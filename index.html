@@ -4194,12 +4194,11 @@
       _el('game-over-screen').style.display = 'none';
       if (_audCtx) _audCtx.resume();
       if (gameMode === 'online-host') {
+        // Reset _mpNextLevel so startGame doesn't advance the level —
+        // restart means the SAME level, not the next one.
+        gameState._mpNextLevel = false;
         startGame(_onlineLevel);
-        const lvl = _onlineLevel;
-        setTimeout(() => {
-          const msg = JSON.stringify({ t: 'lvl_start', seed: _lastSeed, lvl });
-          if (!_rtcSend(msg) && onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(msg);
-        }, 200);
+        // startGame already sends lvl_start; no need for a second send here.
       }
       // Guest: host will send lvl_start, nothing to do locally
     }
@@ -4320,8 +4319,9 @@
       }
 
       buildGridArena(lvl);
-      if (gameMode === 'online-host' && onlineWs && onlineWs.readyState === WebSocket.OPEN) {
-        onlineWs.send(JSON.stringify({ t: 'lvl_start', seed: _lastSeed, lvl }));
+      if (gameMode === 'online-host') {
+        const _lvlMsg = JSON.stringify({ t: 'lvl_start', seed: _lastSeed, lvl });
+        if (!_rtcSend(_lvlMsg) && onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(_lvlMsg);
       }
       gameState.spawnTimer = 2.0;
       gameState.zombiesAwake = true;
