@@ -13,7 +13,11 @@
     // Manifest + icon embedded — no external files needed
     (function() {
       const iconSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><rect width="192" height="192" fill="#0a0e1a"/><text x="96" y="130" font-size="120" text-anchor="middle" fill="#fb923c">⚡</text></svg>';
-      const manifest = { name: "Hold the Line", short_name: "Hold the Line", display: "fullscreen", orientation: "landscape", start_url: "/", background_color: "#000000", theme_color: "#000000", icons: [{ src: "data:image/svg+xml;charset=utf-8," + encodeURIComponent(iconSvg), sizes: "any", type: "image/svg+xml" }] };
+      const iconData = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(iconSvg);
+      
+      const fav = document.createElement('link'); fav.rel = 'icon'; fav.href = iconData; document.head.appendChild(fav);
+
+      const manifest = { name: "Hold the Line", short_name: "Hold the Line", display: "fullscreen", orientation: "landscape", start_url: window.location.pathname, background_color: "#000000", theme_color: "#000000", icons: [{ src: iconData, sizes: "any", type: "image/svg+xml" }] };
       const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
       const link = document.createElement('link');
       link.rel = 'manifest';
@@ -794,6 +798,7 @@
       <div class="op-screen active" id="op-main">
         <div class="op-title">&#127760; ONLINE</div>
         <div class="op-sub">Play with a friend on another device</div>
+        <input id="op-nick-input" type="text" maxlength="12" placeholder="YOUR NICKNAME" style="width:200px;margin-bottom:15px;text-align:center;" value="Survivor" />
         <button class="btn op-btn" id="op-create-btn">&#43; CREATE ROOM</button>
         <button class="btn op-btn" id="op-join-btn">&#9654; JOIN ROOM</button>
         <button class="op-link" id="op-back">&#8592; Back</button>
@@ -833,7 +838,8 @@
 
     <!-- Game Over overlay -->
     <div id="game-over-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;flex-direction:column;pointer-events:auto;backdrop-filter:blur(8px);">
-      <div style="font-family:'Orbitron',sans-serif;font-size:clamp(2rem,8vw,4.5rem);color:#ff1744;text-shadow:0 0 24px #ff1744,0 0 60px rgba(255,0,0,0.5);letter-spacing:6px;animation:hudPulse 0.9s ease-in-out infinite alternate;margin-bottom:40px;">GAME OVER</div>
+      <div id="go-title" style="font-family:'Orbitron',sans-serif;font-size:clamp(2rem,8vw,4.5rem);color:#ff1744;text-shadow:0 0 24px #ff1744,0 0 60px rgba(255,0,0,0.5);letter-spacing:6px;animation:hudPulse 0.9s ease-in-out infinite alternate;margin-bottom:10px;">GAME OVER</div>
+      <div id="go-winner" style="font-family:'Orbitron',sans-serif;font-size:24px;color:#fff;margin-bottom:40px;text-transform:uppercase;"></div>
       <div style="display:flex;flex-direction:column;gap:15px;width:240px;">
         <button onclick="restartLevel()" style="background:#2d1a1a;border:2px solid #ff1744;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;box-shadow:0 4px 15px rgba(255,23,68,0.2);">RESTART LEVEL</button>
         <button onclick="backToMenuFromGameOver()" style="background:#1a1a1a;border:2px solid #64748b;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;">MAIN MENU</button>
@@ -3635,13 +3641,17 @@
 
     let _wsKeepAlive = null;
     function _connectWS(role, codeToJoin) {
+      onlineRole = role;
+      const nick = _el('op-nick-input').value.trim() || (role === 'host' ? 'Player 1' : 'Player 2');
+      playerNames[role === 'host' ? 0 : 1] = nick;
+      _el(role === 'host' ? 'mp-p1-name' : 'mp-p2-name').textContent = nick;
+
       if (_wsKeepAlive) { clearInterval(_wsKeepAlive); _wsKeepAlive = null; }
       if (onlineWs) { try { onlineWs.onclose = null; onlineWs.close(); } catch(e){} }
       onlineWs = new WebSocket(WS_URL);
-      onlineRole = role;
       onlineWs.onopen = () => {
-        if (role === 'host') onlineWs.send(JSON.stringify({ t: 'create' }));
-        else onlineWs.send(JSON.stringify({ t: 'join', code: codeToJoin }));
+        if (role === 'host') onlineWs.send(JSON.stringify({ t: 'create', nick }));
+        else onlineWs.send(JSON.stringify({ t: 'join', code: codeToJoin, nick }));
         _wsKeepAlive = setInterval(() => {
           if (onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(JSON.stringify({ t: 'ping' }));
         }, 25000);
@@ -3713,12 +3723,19 @@
     }
 
     function _handleOnlineMsg(msg) {
+      if (msg.t === 'nick_sync') {
+        playerNames[msg.role === 'host' ? 0 : 1] = msg.nick;
+        _el('mp-p1-name').textContent = playerNames[0];
+        _el('mp-p2-name').textContent = playerNames[1];
+        return;
+      }
       if (msg.t === 'created') {
         onlineRoomCode = msg.code;
         document.getElementById('op-code').textContent = msg.code;
         document.getElementById('op-status').textContent = 'Waiting for opponent…';
         _showOnlineScreen('op-creating');
       } else if (msg.t === 'peer_joined') {
+        if (onlineRole === 'host') onlineWs.send(JSON.stringify({ t: 'nick_sync', role: 'host', nick: playerNames[0] }));
         _initRTC(true);
         gameMode = 'online-host';
         _hideOnlinePanel();
@@ -3728,6 +3745,7 @@
         _initRTC(false);
         _showOnlineScreen('op-waiting');
         document.getElementById('op-wait-code').textContent = msg.code;
+        onlineWs.send(JSON.stringify({ t: 'nick_sync', role: 'guest', nick: playerNames[1] }));
       } else if (msg.t === 'peer_left') {
         if (gameState.active) returnToMenu();
         else { _showOnlineError('Opponent disconnected'); _showOnlineScreen('op-main'); }
@@ -3846,26 +3864,21 @@
           const p = players[i];
           if (!p) continue;
 
-          if (i === 1) {
-            // Guest's own player (P2): never update position from host.
-            // Self-prediction in animate() is authoritative.
-            // Only sync state flags and hard-snap if teleport (>100u).
+          if (i === 1 && gameMode === 'online-guest') {
             p.alive = !!pd[2]; p.sinking = !!pd[3]; p.isDashing = !!pd[4];
-            p.isDrawingWire = !!pd[6];
-            if (p.group) p.group.visible = p.alive || p.sinking;
+            // Sync isDrawingWire so the mesh update below knows whether to show it
+            p.isDrawingWire = !!pd[6]; 
             const snapDist = Math.hypot(pd[0] - p.x, pd[1] - p.z);
             if (snapDist > 100) { p.x = pd[0]; p.z = pd[1]; if (p.group) p.group.position.set(p.x, 0, p.z); }
-            continue;
+          } else {
+            p._targetX = pd[0]; p._targetZ = pd[1];
+            p.alive = !!pd[2];
+            p.sinking = !!pd[3];
+            p.isDashing = !!pd[4];
+            p._gFaceY = pd[5];
+            p.isDrawingWire = !!pd[6];
           }
 
-          p._targetX = pd[0]; p._targetZ = pd[1];
-          p.alive = !!pd[2];
-          p.sinking = !!pd[3];
-          p.isDashing = !!pd[4];
-          p._gFaceY = pd[5];
-
-          const wasDrawing = p.isDrawingWire;
-          p.isDrawingWire = !!pd[6];
           const wPts = pd[7];
 
           if (p.group) {
@@ -3961,7 +3974,7 @@
       if (keys['KeyD'] || keys['ArrowRight']) vx += 1;
       vx += touch.vx; vz += touch.vz;
       const len = Math.hypot(vx, vz); if (len > 1) { vx /= len; vz /= len; }
-      const fi = !!(keys['Space'] || keys['Enter'] || touch.fire);
+      const fi = players[1].isDrawingWire;
       const da = !!(keys['ShiftLeft'] || keys['ShiftRight'] || touch.dash);
       const bm = !!_guestBombQueued; _guestBombQueued = false;
       const _im = JSON.stringify({ t: 'input', vx: +vx.toFixed(2), vz: +vz.toFixed(2), fi, da, bm });
@@ -4077,7 +4090,7 @@
     });
 
     function mpDeclareWinner(deadPlayer) {
-      if (gameMode !== 'multi' && gameMode !== 'online-host') return;
+      if (gameMode !== 'multi' && gameMode !== 'online-host' && gameMode !== 'online-guest') return;
       gameState._mpNextLevel = true;
       const winner = players.find(p => p !== deadPlayer && p.alive && !p.sinking);
       if (!winner) return;
@@ -4086,11 +4099,33 @@
       const wColor = winner.teamColor === 'blue' ? '#42a5f5' : '#ef5350';
       showFloatingText(winner.group.position, wLabel, wColor);
       _el('mp-phase-label').textContent = wLabel;
+
+      if (gameMode.startsWith('online')) {
+        setTimeout(() => {
+          const goScreen = _el('game-over-screen');
+          const goTitle = _el('go-title');
+          const goWinner = _el('go-winner');
+          const isWinner = (gameMode === 'online-host' && winner.id === 1) || (gameMode === 'online-guest' && winner.id === 2);
+          
+          goTitle.textContent = isWinner ? 'VICTORY!' : 'DEFEATED';
+          goTitle.style.color = isWinner ? '#4ade80' : '#ff1744';
+          goTitle.style.textShadow = isWinner ? '0 0 24px #4ade80' : '0 0 24px #ff1744';
+          goWinner.textContent = wLabel;
+          goScreen.style.display = 'flex';
+          if (_audCtx) _audCtx.suspend();
+          playSfx(isWinner ? 'win' : 'die');
+        }, 2000);
+      }
     }
 
     function _showGameOver() {
       const el = document.getElementById('game-over-screen');
-      if (el) { el.style.display = 'flex'; }
+      if (el) { 
+        _el('go-title').textContent = 'GAME OVER';
+        _el('go-title').style.color = '#ff1744';
+        _el('go-winner').textContent = '';
+        el.style.display = 'flex'; 
+      }
     }
     function _hideGameOver() {
       const el = document.getElementById('game-over-screen');
@@ -4296,24 +4331,32 @@
     let _musicOn = true, _sfxOn = true;
 
     function _initAudio() {
-      if (_audCtx) { if (_audCtx.state === 'suspended') _audCtx.resume(); return; }
-      _audCtx = new (window.AudioContext || window.webkitAudioContext)();
-      _musicGainNode = _audCtx.createGain(); _musicGainNode.gain.value = 0.32;
-      _sfxGainNode   = _audCtx.createGain(); _sfxGainNode.gain.value   = 0.6;
-      _musicGainNode.connect(_audCtx.destination);
-      _sfxGainNode.connect(_audCtx.destination);
-      // Reverb impulse for music space
-      const SR = _audCtx.sampleRate;
-      const irLen = Math.floor(2.2 * SR);
-      const ir = _audCtx.createBuffer(2, irLen, SR);
-      for (let ch = 0; ch < 2; ch++) {
-        const d = ir.getChannelData(ch);
-        for (let i = 0; i < irLen; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/irLen, 2.2);
+      if (_audCtx) { 
+        if (_audCtx.state === 'suspended') _audCtx.resume(); 
+        return; 
       }
-      _reverbNode = _audCtx.createConvolver(); _reverbNode.buffer = ir;
-      _reverbGain = _audCtx.createGain(); _reverbGain.gain.value = 0.22;
-      _reverbNode.connect(_reverbGain); _reverbGain.connect(_audCtx.destination);
-      if (_musicOn) _startMusic();
+      try {
+        _audCtx = new (window.AudioContext || window.webkitAudioContext)();
+        _musicGainNode = _audCtx.createGain(); _musicGainNode.gain.value = 0.32;
+        _sfxGainNode   = _audCtx.createGain(); _sfxGainNode.gain.value   = 0.6;
+        _musicGainNode.connect(_audCtx.destination);
+        _sfxGainNode.connect(_audCtx.destination);
+        // Reverb impulse for music space
+        const SR = _audCtx.sampleRate;
+        const irLen = Math.floor(2.2 * SR);
+        const ir = _audCtx.createBuffer(2, irLen, SR);
+        for (let ch = 0; ch < 2; ch++) {
+          const d = ir.getChannelData(ch);
+          for (let i = 0; i < irLen; i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/irLen, 2.2);
+        }
+        _reverbNode = _audCtx.createConvolver(); _reverbNode.buffer = ir;
+        _reverbGain = _audCtx.createGain(); _reverbGain.gain.value = 0.22;
+        _reverbNode.connect(_reverbGain); _reverbGain.connect(_audCtx.destination);
+        if (_musicOn) _startMusic();
+        
+        // Final resume for mobile
+        if (_audCtx.state === 'suspended') _audCtx.resume();
+      } catch (e) { console.error("Audio init failed", e); }
     }
 
     function _buildMusicBuffer() {
@@ -4923,6 +4966,42 @@
             _gp._gMoving = false;
           }
           _gp.group.position.set(_gp.x, _gp.group.position.y, _gp.z);
+
+          // Wire toggle logic for guest
+          const wireCommand = !!(keys['Space'] || keys['Enter'] || touch.fire);
+          if (wireCommand && time > _gp.lastWireTick + 0.3) {
+            _gp.lastWireTick = time;
+            _gp.isDrawingWire = !_gp.isDrawingWire;
+            if (_gp.isDrawingWire) {
+              _gp.wirePoints = [{ x: _gp.x, z: _gp.z }];
+              _gp.startMarker.position.set(_gp.x, 3.5, _gp.z);
+              _gp.startMarker.visible = true;
+            } else {
+              _gp.wirePoints = []; _gp.startMarker.visible = false;
+              if (_gp.wireMesh) { _gp.wireMesh.geometry.dispose(); _gp.wireMesh.geometry = new THREE.BufferGeometry(); }
+              if (_gp.wireOuterMesh) { _gp.wireOuterMesh.geometry.dispose(); _gp.wireOuterMesh.geometry = new THREE.BufferGeometry(); }
+            }
+          }
+
+          // Update local wire mesh geometry for instant feedback
+          if (_gp.isDrawingWire) {
+            _gp.startMarker.rotation.y += 5 * dt;
+            const tail = _gp.wirePoints[_gp.wirePoints.length - 1];
+            if (tail && Math.hypot(tail.x - _gp.x, tail.z - _gp.z) > 4.0) {
+              _gp.wirePoints.push({ x: _gp.x, z: _gp.z });
+              const vPts = _gp.wirePoints.map(wp => new THREE.Vector3(wp.x, 0, wp.z));
+              vPts.push(new THREE.Vector3(_gp.x, 0, _gp.z));
+              if (vPts.length >= 2) {
+                const curve = new THREE.CatmullRomCurve3(vPts);
+                const oldGeo = _gp.wireMesh.geometry;
+                _gp.wireMesh.geometry = new THREE.TubeGeometry(curve, Math.max(vPts.length * 2, 8), 2.5, 6, false);
+                oldGeo.dispose();
+                const oldGeoO = _gp.wireOuterMesh.geometry;
+                _gp.wireOuterMesh.geometry = new THREE.TubeGeometry(curve, Math.max(vPts.length * 2, 8), 3.2, 6, false);
+                oldGeoO.dispose();
+              }
+            }
+          }
         }
 
         // Zombie lerp
@@ -5245,7 +5324,19 @@
                 if (onlineP2Input.bm && !p._bombKeyHeld) { p._bombKeyHeld = true; placeBomb(p); onlineP2Input.bm = false; }
                 if (!onlineP2Input.bm) p._bombKeyHeld = false;
               } else {
-                wireCommand = !!onlineP2Input.fi;
+                // Online P2: isDrawingWire is synced directly from guest intent
+                if (onlineP2Input.fi !== p.isDrawingWire) {
+                  p.isDrawingWire = onlineP2Input.fi;
+                  if (p.isDrawingWire) {
+                    p.wirePoints = [{ x: p.x, z: p.z }];
+                    p.startMarker.position.set(p.x, 3.5, p.z);
+                    p.startMarker.visible = true;
+                  } else {
+                    p.wirePoints = []; p.startMarker.visible = false;
+                    p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry();
+                    p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry();
+                  }
+                }
               }
               baseDash = !!onlineP2Input.da;
             }
@@ -6480,6 +6571,10 @@
       renderer.render(scene, camera);
     }
     animate();
+
+    // Mobile audio fix: resume context on first interaction
+    document.addEventListener('touchstart', () => { if (_audCtx && _audCtx.state === 'suspended') _audCtx.resume(); }, { once: true });
+    document.addEventListener('mousedown', () => { if (_audCtx && _audCtx.state === 'suspended') _audCtx.resume(); }, { once: true });
 
     // Expose onclick-callable functions to global scope (module scripts are not global)
     window._toggleSfx = _toggleSfx;
