@@ -839,9 +839,16 @@
     <!-- Game Over overlay -->
     <div id="game-over-screen" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:1000;align-items:center;justify-content:center;flex-direction:column;pointer-events:auto;backdrop-filter:blur(8px);">
       <div id="go-title" style="font-family:'Orbitron',sans-serif;font-size:clamp(2rem,8vw,4.5rem);color:#ff1744;text-shadow:0 0 24px #ff1744,0 0 60px rgba(255,0,0,0.5);letter-spacing:6px;animation:hudPulse 0.9s ease-in-out infinite alternate;margin-bottom:10px;">GAME OVER</div>
-      <div id="go-winner" style="font-family:'Orbitron',sans-serif;font-size:24px;color:#fff;margin-bottom:40px;text-transform:uppercase;"></div>
-      <div style="display:flex;flex-direction:column;gap:15px;width:240px;">
-        <button onclick="restartLevel()" style="background:#2d1a1a;border:2px solid #ff1744;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;box-shadow:0 4px 15px rgba(255,23,68,0.2);">RESTART LEVEL</button>
+      <div id="go-winner" style="font-family:'Orbitron',sans-serif;font-size:24px;color:#fff;margin-bottom:30px;text-transform:uppercase;"></div>
+      <!-- Online restart -->
+      <div id="go-online-btns" style="display:none;flex-direction:column;align-items:center;gap:12px;">
+        <button id="go-restart-btn" onclick="onlineRestartVote()" style="background:linear-gradient(135deg,#1565c0,#0d47a1);border:2px solid #42a5f5;color:#fff;padding:14px 40px;font-family:'Orbitron',sans-serif;font-size:16px;font-weight:700;cursor:pointer;border-radius:8px;letter-spacing:2px;">RESTART</button>
+        <div id="go-waiting" style="display:none;color:rgba(255,255,255,0.5);font-family:monospace;font-size:13px;letter-spacing:1px;">Waiting for opponent...</div>
+        <button onclick="backToMenuFromGameOver()" style="background:#1a1a1a;border:2px solid #64748b;color:#aaa;padding:10px 28px;font-family:'Orbitron',sans-serif;font-size:13px;cursor:pointer;border-radius:8px;">MAIN MENU</button>
+      </div>
+      <!-- Offline buttons -->
+      <div id="go-offline-btns" style="display:flex;flex-direction:column;gap:15px;width:240px;">
+        <button onclick="restartLevel()" style="background:#2d1a1a;border:2px solid #ff1744;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;">RESTART LEVEL</button>
         <button onclick="backToMenuFromGameOver()" style="background:#1a1a1a;border:2px solid #64748b;color:#fff;padding:15px;font-family:'Orbitron',sans-serif;font-weight:700;cursor:pointer;border-radius:8px;">MAIN MENU</button>
       </div>
     </div>
@@ -3788,6 +3795,14 @@
       } else if (msg.t === 'rtc_ice') {
         if (!_rtcPeer) return;
         _rtcPeer.addIceCandidate(msg.ice).catch(() => {});
+      } else if (msg.t === 'match_result') {
+        // Guest receives win/loss result from host
+        const guestWon = msg.winnerId === 2; // guest is always P2
+        _showOnlineResult(guestWon);
+        playSfx(guestWon ? 'win' : 'die');
+      } else if (msg.t === 'restart_vote') {
+        _restartVotedPeer = true;
+        _checkBothRestarted();
       }
     }
 
@@ -4115,34 +4130,70 @@
       showFloatingText(winner.group.position, wLabel, wColor);
       _el('mp-phase-label').textContent = wLabel;
 
-      if (gameMode.startsWith('online') || gameMode === 'multi') {
+      if (gameMode === 'multi') {
         setTimeout(() => {
-          const goScreen = _el('game-over-screen');
-          const goTitle = _el('go-title');
-          const goWinner = _el('go-winner');
-          
-          if (gameMode === 'multi') {
-            goTitle.textContent = 'MATCH OVER';
-            goTitle.style.color = '#facc15';
-            goTitle.style.textShadow = '0 0 24px #facc15';
-          } else {
-            const isWinner = (gameMode === 'online-host' && winner.id === 1) || (gameMode === 'online-guest' && winner.id === 2);
-            goTitle.textContent = isWinner ? 'VICTORY!' : 'DEFEATED';
-            goTitle.style.color = isWinner ? '#4ade80' : '#ff1744';
-            goTitle.style.textShadow = isWinner ? '0 0 24px #4ade80' : '0 0 24px #ff1744';
-          }
-          
-          goWinner.textContent = wLabel;
-          goScreen.style.display = 'flex';
-          if (_audCtx) _audCtx.suspend();
-          if (gameMode.startsWith('online')) {
-            const isWinner = (gameMode === 'online-host' && winner.id === 1) || (gameMode === 'online-guest' && winner.id === 2);
-            playSfx(isWinner ? 'win' : 'die');
-          } else {
-            playSfx('win');
-          }
+          _el('go-title').textContent = 'MATCH OVER';
+          _el('go-title').style.color = '#facc15';
+          _el('go-title').style.textShadow = '0 0 24px #facc15';
+          _el('go-winner').textContent = wLabel;
+          _el('go-online-btns').style.display = 'none';
+          _el('go-offline-btns').style.display = 'flex';
+          _el('game-over-screen').style.display = 'flex';
+          playSfx('win');
         }, 2000);
+      } else if (gameMode === 'online-host') {
+        // Send result to guest first
+        const resultMsg = JSON.stringify({ t: 'match_result', winnerId: winner.id });
+        if (!_rtcSend(resultMsg) && onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(resultMsg);
+        setTimeout(() => {
+          _showOnlineResult(winner.id === 1); // host is P1, wins if winner.id===1
+          playSfx(winner.id === 1 ? 'win' : 'die');
+        }, 1500);
       }
+    }
+
+    let _restartVotedLocal = false, _restartVotedPeer = false, _onlineLevel = 1;
+
+    function _showOnlineResult(isWinner) {
+      _restartVotedLocal = false; _restartVotedPeer = false;
+      _onlineLevel = gameState.level;
+      const title = _el('go-title');
+      title.textContent = isWinner ? 'YOU WIN! 🏆' : 'YOU LOST';
+      title.style.color = isWinner ? '#4ade80' : '#ff1744';
+      title.style.textShadow = isWinner ? '0 0 24px #4ade80, 0 0 60px rgba(74,222,128,0.4)' : '0 0 24px #ff1744';
+      _el('go-winner').textContent = '';
+      _el('go-online-btns').style.display = 'flex';
+      _el('go-offline-btns').style.display = 'none';
+      _el('go-waiting').style.display = 'none';
+      _el('go-restart-btn').disabled = false;
+      _el('go-restart-btn').textContent = 'RESTART';
+      _el('game-over-screen').style.display = 'flex';
+      if (_audCtx) _audCtx.suspend();
+    }
+
+    function onlineRestartVote() {
+      if (_restartVotedLocal) return;
+      _restartVotedLocal = true;
+      _el('go-restart-btn').disabled = true;
+      _el('go-waiting').style.display = 'block';
+      const voteMsg = JSON.stringify({ t: 'restart_vote' });
+      if (!_rtcSend(voteMsg) && onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(voteMsg);
+      _checkBothRestarted();
+    }
+
+    function _checkBothRestarted() {
+      if (!_restartVotedLocal || !_restartVotedPeer) return;
+      _el('game-over-screen').style.display = 'none';
+      if (_audCtx) _audCtx.resume();
+      if (gameMode === 'online-host') {
+        startGame(_onlineLevel);
+        const lvl = _onlineLevel;
+        setTimeout(() => {
+          const msg = JSON.stringify({ t: 'lvl_start', seed: _lastSeed, lvl });
+          if (!_rtcSend(msg) && onlineWs && onlineWs.readyState === WebSocket.OPEN) onlineWs.send(msg);
+        }, 200);
+      }
+      // Guest: host will send lvl_start, nothing to do locally
     }
 
     function _showGameOver() {
@@ -4891,6 +4942,7 @@
     window._toggleSfx = _toggleSfx;
     window.restartLevel = restartLevel;
     window.backToMenuFromGameOver = backToMenuFromGameOver;
+    window.onlineRestartVote = onlineRestartVote;
 
     const clock = new THREE.Clock();
     let screenShake = 0.0;
@@ -6642,6 +6694,7 @@
     // Expose onclick-callable functions to global scope (module scripts are not global)
     window._toggleSfx = _toggleSfx;
     window._togglePlayPause = _togglePlayPause;
+    window.onlineRestartVote = onlineRestartVote;
   </script>
   </div> <!-- #game-wrap -->
 </body>
