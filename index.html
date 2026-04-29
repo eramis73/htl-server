@@ -4273,7 +4273,6 @@
       })();
 
       // Start Portal (if coming from another game)
-      const urlParams = new URLSearchParams(window.location.search);
       if (urlParams.get('portal') === 'true') {
         const ref = urlParams.get('ref') || 'vibejam.cc';
         const startX = 0, startZ = -ARENA_LIMIT + 22;
