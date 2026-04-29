@@ -3869,11 +3869,14 @@
           const p = players[i];
           if (!p) continue;
 
-          if (i === 1 && gameMode === 'online-guest') {
+          const isLocalGuest = (i === 1 && gameMode === 'online-guest');
+
+          if (isLocalGuest) {
+            // Guest's own player (P2): never overwrite isDrawingWire from host —
+            // local self-prediction owns wire state; overwriting causes a race condition
+            // where _sendGuestInput reads the stale host value and sends fi:false,
+            // immediately cancelling the wire the guest just started.
             p.alive = !!pd[2]; p.sinking = !!pd[3]; p.isDashing = !!pd[4];
-            // Sync isDrawingWire so the mesh update below knows whether to show it,
-            // but we'll protect local visibility in the logic below.
-            p.isDrawingWire = !!pd[6]; 
             const snapDist = Math.hypot(pd[0] - p.x, pd[1] - p.z);
             if (snapDist > 100) { p.x = pd[0]; p.z = pd[1]; if (p.group) p.group.position.set(p.x, 0, p.z); }
           } else {
@@ -3895,9 +3898,9 @@
           if (p.group) {
              p.group.visible = p.alive || p.sinking;
           }
-          
-          // Wire sync logic
-          if (p.isDrawingWire && wPts && wPts.length >= 2) {
+
+          // Wire sync logic — skip for local guest (uses self-prediction wire)
+          if (!isLocalGuest && p.isDrawingWire && wPts && wPts.length >= 2) {
             if (p.wireMesh) {
               p.wireMesh.visible = true;
               const prevLen = p._gWLen || 0;
@@ -3912,11 +3915,9 @@
                 if (p.startMarker) { p.startMarker.position.set(wPts[0][0], 3.5, wPts[0][1]); p.startMarker.visible = true; }
               }
             }
-          } else {
-            // Protect local guest wire visibility from being hidden by host state
-            const isLocalGuest = (i === 1 && gameMode === 'online-guest');
-            if (!isLocalGuest) {
-              if (p.wireMesh) p.wireMesh.visible = false;
+          } else if (!isLocalGuest) {
+            // Hide wire for remote P1 when not drawing
+            if (p.wireMesh) p.wireMesh.visible = false;
               if (p.wireOuterMesh) p.wireOuterMesh.visible = false;
               if (p.startMarker) p.startMarker.visible = false;
               p._gWLen = 0;
@@ -3989,7 +3990,7 @@
       if (keys['KeyD'] || keys['ArrowRight']) vx += 1;
       vx += touch.vx; vz += touch.vz;
       const len = Math.hypot(vx, vz); if (len > 1) { vx /= len; vz /= len; }
-      const fi = players[1].isDrawingWire;
+      const fi = !!(players[1].isDrawingWire); // local self-predicted state
       const da = !!(keys['ShiftLeft'] || keys['ShiftRight'] || touch.dash);
       const bm = !!_guestBombQueued; _guestBombQueued = false;
       const _im = JSON.stringify({ t: 'input', vx: +vx.toFixed(2), vz: +vz.toFixed(2), fi, da, bm });
@@ -5028,6 +5029,18 @@
                 const oldGeoO = _gp.wireOuterMesh.geometry;
                 _gp.wireOuterMesh.geometry = new THREE.TubeGeometry(curve, Math.max(vPts.length * 2, 8), 3.2, 6, false);
                 oldGeoO.dispose();
+              }
+              // Polygon close detection — reset wire locally (host handles kills)
+              if (_gp.wirePoints.length > 10) {
+                for (let _ci = 0; _ci < _gp.wirePoints.length - 10; _ci++) {
+                  if (Math.hypot(_gp.x - _gp.wirePoints[_ci].x, _gp.z - _gp.wirePoints[_ci].z) < 8.0) {
+                    _gp.isDrawingWire = false; _gp.wirePoints = [];
+                    _gp.startMarker.visible = false;
+                    if (_gp.wireMesh) { _gp.wireMesh.geometry.dispose(); _gp.wireMesh.geometry = new THREE.BufferGeometry(); }
+                    if (_gp.wireOuterMesh) { _gp.wireOuterMesh.geometry.dispose(); _gp.wireOuterMesh.geometry = new THREE.BufferGeometry(); }
+                    break;
+                  }
+                }
               }
             }
           }
