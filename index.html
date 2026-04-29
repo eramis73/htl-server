@@ -4105,20 +4105,32 @@
       showFloatingText(winner.group.position, wLabel, wColor);
       _el('mp-phase-label').textContent = wLabel;
 
-      if (gameMode.startsWith('online')) {
+      if (gameMode.startsWith('online') || gameMode === 'multi') {
         setTimeout(() => {
           const goScreen = _el('game-over-screen');
           const goTitle = _el('go-title');
           const goWinner = _el('go-winner');
-          const isWinner = (gameMode === 'online-host' && winner.id === 1) || (gameMode === 'online-guest' && winner.id === 2);
           
-          goTitle.textContent = isWinner ? 'VICTORY!' : 'DEFEATED';
-          goTitle.style.color = isWinner ? '#4ade80' : '#ff1744';
-          goTitle.style.textShadow = isWinner ? '0 0 24px #4ade80' : '0 0 24px #ff1744';
+          if (gameMode === 'multi') {
+            goTitle.textContent = 'MATCH OVER';
+            goTitle.style.color = '#facc15';
+            goTitle.style.textShadow = '0 0 24px #facc15';
+          } else {
+            const isWinner = (gameMode === 'online-host' && winner.id === 1) || (gameMode === 'online-guest' && winner.id === 2);
+            goTitle.textContent = isWinner ? 'VICTORY!' : 'DEFEATED';
+            goTitle.style.color = isWinner ? '#4ade80' : '#ff1744';
+            goTitle.style.textShadow = isWinner ? '0 0 24px #4ade80' : '0 0 24px #ff1744';
+          }
+          
           goWinner.textContent = wLabel;
           goScreen.style.display = 'flex';
           if (_audCtx) _audCtx.suspend();
-          playSfx(isWinner ? 'win' : 'die');
+          if (gameMode.startsWith('online')) {
+            const isWinner = (gameMode === 'online-host' && winner.id === 1) || (gameMode === 'online-guest' && winner.id === 2);
+            playSfx(isWinner ? 'win' : 'die');
+          } else {
+            playSfx('win');
+          }
         }, 2000);
       }
     }
@@ -6382,6 +6394,7 @@
                 }
                 playerDeathScatter(p);
                 p.alive = false; p.group.visible = false; p.isDrawingWire = false; p.wirePoints = []; p.startMarker.visible = false; p.wireMesh.geometry.dispose(); p.wireMesh.geometry = new THREE.BufferGeometry(); p.wireOuterMesh.geometry.dispose(); p.wireOuterMesh.geometry = new THREE.BufferGeometry();
+                if (isMP()) mpDeclareWinner(p);
                 triggerGameOver();
               }
             });
