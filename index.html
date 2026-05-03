@@ -948,8 +948,46 @@
     const gameWrap = document.getElementById('game-wrap');
     gameWrap.appendChild(renderer.domElement);
 
-    const ARENA_LIMIT = 195;  // z half-extent
-    const ARENA_LIMIT_X = Math.round(ARENA_LIMIT * 1.87); // Fits within 16:9 viewport
+    // GAME BALANCE CONFIGURATION
+    const gameConfig = {
+      player: {
+        baseSpeed: 75,
+        buffSpeed: 127,
+        slowSpeed: 32,
+        dashSpeed: 322,
+        dashDuration: 0.22,
+        dashCooldown: 1.5,
+        bodyRadius: 10,
+        kickStrength: 25,
+        barrelKickStrength: 5,
+      },
+      zombies: {
+        baseSpeed: 12.65,
+        speedIncrement: 0.4,
+        spawnInterval: 2.0,
+        collisionRadius: 4.0,
+        killRadiusLarge: 11.0,
+        killRadiusSmall: 7.0,
+      },
+      bombs: {
+        fuseTime: 5.0,
+        maxFlameRange: 180,
+        coreBlastRadius: 20,
+        collisionRadius: 16,
+        kickMaxStrength: 500,
+      },
+      barrels: {
+        collisionRadius: 16,
+        kickMaxStrength: 80,
+      },
+      arena: {
+        limitZ: 195,
+        limitX: Math.round(195 * 1.87),
+      }
+    };
+
+    const ARENA_LIMIT = gameConfig.arena.limitZ;
+    const ARENA_LIMIT_X = gameConfig.arena.limitX;
 
     const scene = new THREE.Scene();
 
@@ -1175,7 +1213,7 @@
       };
     }
 
-    const _mkPlayer = (id) => ({ id, group: null, lLeg: null, rLeg: null, lArm: null, rArm: null, x: 0, z: 0, score: 0, alive: true, speed: 75, lastWireTick: 0, dashTimer: 0, isDashing: false, dashDur: 0, combo: 0, comboTime: 0, isDrawingWire: false, buffSpeedTime: 0, shield: false, shields: 0, wirePoints: [], wireMesh: null, startMarker: null, walkCycle: 0, bombs: 0, teamColor: id === 1 ? 'blue' : 'red', activeBombCount: 0, zombiesLeft: 0, inBombPhase: false });
+    const _mkPlayer = (id) => ({ id, group: null, lLeg: null, rLeg: null, lArm: null, rArm: null, x: 0, z: 0, score: 0, alive: true, speed: gameConfig.player.baseSpeed, lastWireTick: 0, dashTimer: 0, isDashing: false, dashDur: 0, combo: 0, comboTime: 0, isDrawingWire: false, buffSpeedTime: 0, shield: false, shields: 0, wirePoints: [], wireMesh: null, startMarker: null, walkCycle: 0, bombs: 0, teamColor: id === 1 ? 'blue' : 'red', activeBombCount: 0, zombiesLeft: 0, inBombPhase: false });
     const players = [ _mkPlayer(1), _mkPlayer(2) ];
 
     const BIOMES = [
@@ -1249,7 +1287,7 @@
       LEVELS.push({
         totalZombies:  totalZ,
         startZombies:  Math.max(3, Math.floor(totalZ * 0.35)),
-        zombieSpeed:   12.65 + (Math.min(i, 5) - 1) * 0.4,
+        zombieSpeed:   gameConfig.zombies.baseSpeed + (Math.min(i, 5) - 1) * gameConfig.zombies.speedIncrement,
         chanceTank:    Math.min(0.35, i > 4 ? (i - 4) * 0.025 : 0),
         barrelCount:   Math.min(8, Math.floor(i / 2)),
         powerupChance: 0.25 + i * 0.015,
@@ -1341,7 +1379,7 @@
       }
 
       // Calculate per-direction flame ranges (blocked by trees/rocks)
-      const MAX_FLAME = 180;
+      const MAX_FLAME = gameConfig.bombs.maxFlameRange;
       const ranges = {
         px: getBombFlameRange(pos.x, pos.z,  1,  0, MAX_FLAME),
         nx: getBombFlameRange(pos.x, pos.z, -1,  0, MAX_FLAME),
@@ -1360,7 +1398,7 @@
         (dx < 0 && -dx < ranges.nx && Math.abs(dz) < HW) ||
         (dz > 0 && dz < ranges.pz && Math.abs(dx) < HW) ||
         (dz < 0 && -dz < ranges.nz && Math.abs(dx) < HW) ||
-        Math.hypot(dx, dz) < 20; // core blast radius
+        Math.hypot(dx, dz) < gameConfig.bombs.coreBlastRadius; // core blast radius
 
       // Directional zombie kills
       gameState.entities.zombies.forEach(z => {
@@ -1450,7 +1488,7 @@
       const sparkLight = new THREE.PointLight(0xff8800, 80, 40);
       sparkLight.position.copy(spark.position); bGroup.add(sparkLight);
 
-      activeBombs.push({ group: bGroup, spark, sparkLight, fuseMat, fuseTimer: 5.0, sparkTimer: 0, done: false, owner: player });
+      activeBombs.push({ group: bGroup, spark, sparkLight, fuseMat, fuseTimer: gameConfig.bombs.fuseTime, sparkTimer: 0, done: false, owner: player });
     }
 
     // ── BALL SYSTEM ──────────────────────────────────────────────────────
@@ -3957,7 +3995,7 @@
           seenIds.add(zid);
           let z = guestZombieMap.get(zid);
           if (!z || !z.active) {
-            z = spawnZombieAt(zd[1], zd[2], 12);
+            z = spawnZombieAt(zd[1], zd[2], gameConfig.zombies.baseSpeed);
             if (z) { z._netId = zid; guestZombieMap.set(zid, z); }
           }
           if (z && z.group) {
@@ -5043,8 +5081,8 @@
           const _pLen = Math.hypot(_pvx, _pvz);
           if (_pLen > 0) {
             _pvx /= _pLen; _pvz /= _pLen;
-            _gp.x += _pvx * 75 * dt;
-            _gp.z += _pvz * 75 * dt;
+            _gp.x += _pvx * gameConfig.player.baseSpeed * dt;
+            _gp.z += _pvz * gameConfig.player.baseSpeed * dt;
             _gp.x = Math.max(-ARENA_LIMIT_X + 10, Math.min(ARENA_LIMIT_X - 10, _gp.x));
             _gp.z = Math.max(-ARENA_LIMIT   + 10, Math.min(ARENA_LIMIT   - 10, _gp.z));
             _gp.group.rotation.y = Math.atan2(_pvx, _pvz);
@@ -5754,17 +5792,17 @@
             }
           }
 
-          if (baseDash && p.dashTimer <= 0) { p.isDashing = true; p.dashDur = 0.22; p.dashTimer = 1.5; }
+          if (baseDash && p.dashTimer <= 0) { p.isDashing = true; p.dashDur = gameConfig.player.dashDuration; p.dashTimer = gameConfig.player.dashCooldown; }
 
           if (p.buffSpeedTime > 0) { p.buffSpeedTime -= dt; }
           if (p.slowTime > 0) { p.slowTime -= dt; }
           // Screen darkening (slowdown effect)
           if (p.isDashing && p.dashDur > 0) {
-            p.dashDur -= dt; p.speed = 322; p.group.rotation.x = -0.4;
+            p.dashDur -= dt; p.speed = gameConfig.player.dashSpeed; p.group.rotation.x = -0.4;
           } else {
             p.isDashing = false;
-            if (p.slowTime > 0) p.speed = 32;
-            else p.speed = p.buffSpeedTime > 0 ? 127 : 75;
+            if (p.slowTime > 0) p.speed = gameConfig.player.slowSpeed;
+            else p.speed = p.buffSpeedTime > 0 ? gameConfig.player.buffSpeed : gameConfig.player.baseSpeed;
             p.group.rotation.x = 0;
             if (p.dashTimer > 0) p.dashTimer -= dt;
           }
@@ -5818,7 +5856,7 @@
           }
 
           // Player visual width: arm tips ±9.8 units → full overlap with r=10
-          const coll = applyPillarPhysics(p.x, p.z, 10);
+          const coll = applyPillarPhysics(p.x, p.z, gameConfig.player.bodyRadius);
           p.x = coll.x; p.z = coll.z;
 
           // Bomb collision + kick: impassable, slides on touch
@@ -5827,7 +5865,7 @@
             let bdx = p.x - b.group.position.x;
             let bdz = p.z - b.group.position.z;
             let bdist = Math.hypot(bdx, bdz);
-            const minBombDist = 16;
+            const minBombDist = gameConfig.bombs.collisionRadius;
             if (bdist < 0.5) { bdx = 1; bdz = 0; bdist = 0.5; } // default direction if overlapping
             if (bdist < minBombDist) {
               // Same method as tree collision: full distance correction
@@ -5837,7 +5875,7 @@
               // Slide bomb in player movement direction (kick)
               const playerSpeed = Math.hypot(p._lastDx || 0, p._lastDz || 0);
               if (playerSpeed > 0.5) {
-                const kickStr = Math.min(playerSpeed * 25, 500);
+                const kickStr = Math.min(playerSpeed * gameConfig.player.kickStrength, gameConfig.bombs.kickMaxStrength);
                 b.kickVx = (b.kickVx || 0) - (bdx / bdist) * kickStr;
                 b.kickVz = (b.kickVz || 0) - (bdz / bdist) * kickStr;
               }
@@ -5850,7 +5888,7 @@
             let bdx = p.x - b.mesh.position.x;
             let bdz = p.z - b.mesh.position.z;
             let bdist = Math.hypot(bdx, bdz);
-            const minBarrelDist = 16;
+            const minBarrelDist = gameConfig.barrels.collisionRadius;
             if (bdist < 0.5) { bdx = 1; bdz = 0; bdist = 0.5; }
             if (bdist < minBarrelDist) {
               const push = (minBarrelDist - bdist) / bdist;
@@ -5858,7 +5896,7 @@
               p.z += bdz * push;
               const playerSpeed = Math.hypot(p._lastDx || 0, p._lastDz || 0);
               if (playerSpeed > 0.5) {
-                const kickStr = Math.min(playerSpeed * 5, 80);
+                const kickStr = Math.min(playerSpeed * gameConfig.player.barrelKickStrength, gameConfig.barrels.kickMaxStrength);
                 b.kickVx = (b.kickVx || 0) - (bdx / bdist) * kickStr;
                 b.kickVz = (b.kickVz || 0) - (bdz / bdist) * kickStr;
               }
@@ -5871,7 +5909,7 @@
             if (other) {
               const pdx = p.x - other.x, pdz = p.z - other.z;
               const pdSq = pdx * pdx + pdz * pdz;
-              const minD = 20; // sum of two player radii (10+10)
+              const minD = gameConfig.player.bodyRadius * 2; // sum of two player radii
               if (pdSq < minD * minD && pdSq > 0) {
                 const pdist = Math.sqrt(pdSq);
                 const overlap = (minD - pdist) / pdist;
@@ -5883,7 +5921,7 @@
             }
           }
 
-          const _pr = 10; // player body half-width (scale 1.75 × arm reach)
+          const _pr = gameConfig.player.bodyRadius; // player body half-width
           p.x = Math.max(-arenaLimitX + _pr, Math.min(arenaLimitX - _pr, p.x));
           p.z = Math.max(-arenaLimit   + _pr, Math.min(arenaLimit   - _pr, p.z));
           p.group.position.x = p.x; p.group.position.z = p.z; // y korundu (bounce animasyonu)
@@ -6453,7 +6491,7 @@
                 }
               });
             }
-            const coll = applyPillarPhysics(nx, nz, 4.0);
+            const coll = applyPillarPhysics(nx, nz, gameConfig.zombies.collisionRadius);
             z.group.position.x = coll.x; z.group.position.z = coll.z;
 
             z.group.position.x = Math.max(-arenaLimitX, Math.min(arenaLimitX, z.group.position.x));
@@ -6493,7 +6531,7 @@
             }
 
             players.forEach(p => {
-              if (!gameState.levelComplete && p.alive && Math.hypot(p.x - z.group.position.x, p.z - z.group.position.z) < (z.type === 1 ? 11.0 : 7.0)) {
+              if (!gameState.levelComplete && p.alive && Math.hypot(p.x - z.group.position.x, p.z - z.group.position.z) < (z.type === 1 ? gameConfig.zombies.killRadiusLarge : gameConfig.zombies.killRadiusSmall)) {
                 if (p.shield) {
                   z.active = false; z.group.visible = false; createSmokePuff(z.group.position);
                   breakShield(p, "KALKAN KIRILDI!");
